@@ -6,7 +6,7 @@ You now have a complete system that bridges GitHub Copilot with the sophisticate
 
 ### 🎯 **Core Components**
 
-1. **✅ MCP Server Running**: `uvx blender-mcp` 
+1. **✅ MCP Server Running**: `uvx blender-mcp`
 2. **✅ Blender Addon Active**: Connected on port 9876
 3. **✅ Copilot Bridge**: `copilot_bridge.py` - Direct Python API to all MCP tools
 4. **✅ Enhanced NL Interface**: `enhanced_nl_interface.py` - Natural language processing
@@ -15,6 +15,7 @@ You now have a complete system that bridges GitHub Copilot with the sophisticate
 ### 🚀 **How to Use with GitHub Copilot**
 
 #### Method 1: Direct API Calls (Recommended)
+
 ```python
 from copilot_bridge import BlenderCopilotBridge
 
@@ -35,6 +36,7 @@ screenshot_path = bridge.capture_viewport_screenshot()
 ```
 
 #### Method 2: Natural Language Interface
+
 ```python
 from enhanced_nl_interface import EnhancedBlenderNL
 
@@ -47,6 +49,7 @@ result = nl.process_request("capture a screenshot")
 ```
 
 #### Method 3: Convenience Functions
+
 ```python
 from copilot_bridge import create_cube_at_position, get_scene_summary, clear_scene
 
@@ -61,17 +64,20 @@ clear_scene()
 When integrations are enabled in Blender, you get access to:
 
 #### Asset Management
+
 - **PolyHaven**: 15,000+ textures, HDRIs, 3D models
 - **Sketchfab**: Millions of 3D models
 - **Hyper3D**: AI-powered 3D model generation
 
 #### Scene Management
+
 - Get detailed scene information
 - Object manipulation and querying
 - Viewport screenshot capture
 - Material and texture application
 
 #### Code Execution
+
 - Run arbitrary Python code in Blender
 - Full access to Blender Python API (bpy)
 
@@ -85,14 +91,15 @@ You can now ask GitHub Copilot to:
 2. **"Download a wood texture and apply it to the cube"**
    - Copilot can use `bridge.search_polyhaven_assets()` and `bridge.apply_texture_to_object()`
 
-3. **"Generate a dragon model and place it in the scene"** 
+3. **"Generate a dragon model and place it in the scene"**
    - Copilot can use `bridge.generate_3d_model_from_text()` and handle the async workflow
 
 4. **"Create a complete bedroom scene"**
    - Copilot can orchestrate multiple API calls to download furniture, apply textures, set up lighting
 
 ### 🎨 **Current Scene Status**
-```
+
+```text
 📋 Scene: Scene
 📊 Total objects: 4
 🎯 Objects in scene:
@@ -103,7 +110,9 @@ You can now ask GitHub Copilot to:
 ```
 
 ### 🔌 **Integration Status**
+
 Currently all integrations are disabled. To enable:
+
 1. In Blender → N key → BlenderMCP panel
 2. Check boxes for PolyHaven, Sketchfab, Hyper3D
 3. Add API keys where required
@@ -116,7 +125,8 @@ Currently all integrations are disabled. To enable:
 4. **Add OpenAI API integration** for enhanced natural language understanding
 
 ### 📁 **File Structure**
-```
+
+```text
 blender-mcp/
 ├── addon.py                    # ✅ Installed in Blender
 ├── copilot_bridge.py          # 🎯 Main API for Copilot  
@@ -129,6 +139,7 @@ blender-mcp/
 ### 🎉 **Success!**
 
 You now have a **production-ready** system that:
+
 - ✅ Connects GitHub Copilot to Blender
 - ✅ Provides access to sophisticated 3D tools
 - ✅ Handles asset downloading and AI generation
