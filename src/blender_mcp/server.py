@@ -332,6 +332,65 @@ def execute_blender_code(ctx: Context, code: str) -> str:
         logger.error(f"Error executing code: {str(e)}")
         return f"Error executing code: {str(e)}"
 
+
+@mcp.tool()
+def get_node_details(ctx: Context, node_tree_name: str, node_name: str = None) -> str:
+    """
+    Get detailed information about nodes in a Blender node tree (Geometry Nodes, Shader Nodes, etc.).
+    
+    This tool provides comprehensive node introspection including:
+    - Node type (bl_idname) and custom labels
+    - Input/output sockets with their current values (for unconnected sockets)
+    - Node-specific properties (e.g., Math node operation, Compare mode, etc.)
+    - Node position in the editor
+    
+    Parameters:
+    - node_tree_name: The name of the node tree to inspect (e.g., "Geometry Nodes", "Random Rotation")
+    - node_name: Optional - specific node name to get details for. If not provided, returns all nodes.
+    
+    Returns detailed JSON with node information useful for understanding and modifying node setups.
+    """
+    try:
+        blender = get_blender_connection()
+        params = {"node_tree_name": node_tree_name}
+        if node_name:
+            params["node_name"] = node_name
+        
+        result = blender.send_command("get_node_details", params)
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting node details: {str(e)}")
+        return f"Error getting node details: {str(e)}"
+
+
+@mcp.tool()
+def get_node_links(ctx: Context, node_tree_name: str) -> str:
+    """
+    Get all connections (links) between nodes in a Blender node tree.
+    
+    This tool shows how nodes are connected, complementing get_node_details which shows
+    node properties. Together they provide complete visibility into node setups.
+    
+    Parameters:
+    - node_tree_name: The name of the node tree to inspect (e.g., "Geometry Nodes")
+    
+    Returns a list of connections showing:
+    - from_node: Source node name
+    - from_socket: Source socket name and index
+    - to_node: Target node name  
+    - to_socket: Target socket name and index
+    
+    Use this to understand data flow and dependencies between nodes.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("get_node_links", {"node_tree_name": node_tree_name})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting node links: {str(e)}")
+        return f"Error getting node links: {str(e)}"
+
+
 @mcp.tool()
 def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
     """

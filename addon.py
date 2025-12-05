@@ -202,6 +202,8 @@ class BlenderMCPServer:
         handlers = {
             "get_scene_info": self.get_scene_info,
             "get_object_info": self.get_object_info,
+            "get_node_details": self.get_node_details,
+            "get_node_links": self.get_node_links,
             "get_viewport_screenshot": self.get_viewport_screenshot,
             "execute_code": self.execute_code,
             "get_polyhaven_status": self.get_polyhaven_status,
@@ -344,6 +346,185 @@ class BlenderMCPServer:
             }
 
         return obj_info
+
+    def get_node_details(self, node_tree_name, node_name=None):
+        """
+        Get detailed information about nodes in a Blender node tree.
+        
+        Parameters:
+        - node_tree_name: Name of the node tree (e.g., "Geometry Nodes")
+        - node_name: Optional specific node name. If None, returns all nodes.
+        
+        Returns detailed node information including type, sockets, and node-specific properties.
+        """
+        # Find the node tree
+        node_tree = bpy.data.node_groups.get(node_tree_name)
+        if not node_tree:
+            raise ValueError(f"Node tree not found: {node_tree_name}. Available: {[ng.name for ng in bpy.data.node_groups]}")
+        
+        def get_socket_value(socket):
+            """Safely extract socket default value and ensure JSON serializable"""
+            try:
+                if hasattr(socket, 'default_value'):
+                    val = socket.default_value
+                    # Skip None values
+                    if val is None:
+                        return None
+                    # Handle Blender ID types (Object, Material, etc.) - just return name
+                    if hasattr(val, 'name') and hasattr(val, 'bl_rna'):
+                        return f"<{type(val).__name__}: {val.name}>"
+                    # Handle vectors, colors, etc.
+                    if hasattr(val, '__iter__') and not isinstance(val, str):
+                        try:
+                            return [float(v) if isinstance(v, (int, float)) else str(v) for v in val]
+                        except (TypeError, ValueError):
+                            return str(val)
+                    # Handle simple types
+                    if isinstance(val, (bool, int, float, str)):
+                        return val
+                    # Fallback - convert to string
+                    return str(val)
+            except (AttributeError, TypeError, RuntimeError):
+                pass
+            return None
+        
+        def get_node_specific_props(node):
+            """Extract node-type-specific properties"""
+            props = {}
+            
+            # Common properties that many nodes have
+            prop_names = [
+                'operation',      # Math, Compare, Boolean Math, etc.
+                'data_type',      # Various nodes
+                'domain',         # Attribute nodes
+                'mode',           # Various nodes
+                'blend_type',     # Mix nodes
+                'clamp',          # Math nodes
+                'use_clamp',      # Math nodes
+                'mapping',        # Mapping nodes
+                'distribution',   # Random nodes
+                'interpolation_type',  # Interpolation nodes
+            ]
+            
+            for prop in prop_names:
+                if hasattr(node, prop):
+                    try:
+                        val = getattr(node, prop)
+                        # Convert enum values to strings
+                        if isinstance(val, str) or isinstance(val, bool) or isinstance(val, (int, float)):
+                            props[prop] = val
+                        else:
+                            props[prop] = str(val)
+                    except (AttributeError, TypeError):
+                        pass
+            
+            # Handle Group nodes specially - get the nested node tree name
+            if node.bl_idname == 'GeometryNodeGroup' or node.bl_idname == 'ShaderNodeGroup':
+                if hasattr(node, 'node_tree') and node.node_tree:
+                    props['node_tree'] = node.node_tree.name
+            
+            return props
+        
+        def extract_node_info(node):
+            """Extract all relevant information from a node"""
+            node_info = {
+                "name": node.name,
+                "bl_idname": node.bl_idname,
+                "label": node.label if node.label else None,
+                "location": [round(node.location.x, 2), round(node.location.y, 2)],
+                "mute": node.mute,
+                "inputs": [],
+                "outputs": [],
+                "properties": get_node_specific_props(node),
+            }
+            
+            # Extract input sockets
+            for inp in node.inputs:
+                socket_info = {
+                    "name": inp.name,
+                    "type": inp.bl_idname if hasattr(inp, 'bl_idname') else type(inp).__name__,
+                    "is_linked": inp.is_linked,
+                }
+                # Only include default_value if socket is not linked
+                if not inp.is_linked:
+                    val = get_socket_value(inp)
+                    if val is not None:
+                        socket_info["default_value"] = val
+                node_info["inputs"].append(socket_info)
+            
+            # Extract output sockets
+            for out in node.outputs:
+                socket_info = {
+                    "name": out.name,
+                    "type": out.bl_idname if hasattr(out, 'bl_idname') else type(out).__name__,
+                    "is_linked": out.is_linked,
+                }
+                node_info["outputs"].append(socket_info)
+            
+            return node_info
+        
+        # If specific node requested, return just that node
+        if node_name:
+            node = node_tree.nodes.get(node_name)
+            if not node:
+                raise ValueError(f"Node not found: {node_name}. Available: {[n.name for n in node_tree.nodes]}")
+            return extract_node_info(node)
+        
+        # Otherwise return all nodes
+        result = {
+            "node_tree_name": node_tree.name,
+            "node_tree_type": node_tree.bl_idname,
+            "node_count": len(node_tree.nodes),
+            "link_count": len(node_tree.links),
+            "nodes": [extract_node_info(n) for n in node_tree.nodes]
+        }
+        
+        return result
+
+    def get_node_links(self, node_tree_name):
+        """
+        Get all connections between nodes in a node tree.
+        
+        Parameters:
+        - node_tree_name: Name of the node tree (e.g., "Geometry Nodes")
+        
+        Returns list of links with from/to node and socket information.
+        """
+        # Find the node tree
+        node_tree = bpy.data.node_groups.get(node_tree_name)
+        if not node_tree:
+            raise ValueError(f"Node tree not found: {node_tree_name}. Available: {[ng.name for ng in bpy.data.node_groups]}")
+        
+        def get_socket_index(socket, socket_collection):
+            """Get the index of a socket in its collection"""
+            for i, s in enumerate(socket_collection):
+                if s == socket:
+                    return i
+            return -1
+        
+        links = []
+        for link in node_tree.links:
+            link_info = {
+                "from_node": link.from_node.name,
+                "from_socket": {
+                    "name": link.from_socket.name,
+                    "index": get_socket_index(link.from_socket, link.from_node.outputs),
+                    "type": link.from_socket.bl_idname if hasattr(link.from_socket, 'bl_idname') else type(link.from_socket).__name__,
+                },
+                "to_node": link.to_node.name,
+                "to_socket": {
+                    "name": link.to_socket.name,
+                    "index": get_socket_index(link.to_socket, link.to_node.inputs),
+                    "type": link.to_socket.bl_idname if hasattr(link.to_socket, 'bl_idname') else type(link.to_socket).__name__,
+                },
+            }
+            links.append(link_info)
+        
+        return {
+            "node_tree_name": node_tree.name,
+            "link_count": len(links),
+            "links": links
+        }
 
     def get_viewport_screenshot(self, max_size=800, filepath=None, format="png"):
         """
