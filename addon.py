@@ -204,6 +204,7 @@ class BlenderMCPServer:
             "get_object_info": self.get_object_info,
             "get_node_details": self.get_node_details,
             "get_node_links": self.get_node_links,
+            "get_modifier_details": self.get_modifier_details,
             "get_viewport_screenshot": self.get_viewport_screenshot,
             "execute_code": self.execute_code,
             "get_polyhaven_status": self.get_polyhaven_status,
@@ -524,6 +525,111 @@ class BlenderMCPServer:
             "node_tree_name": node_tree.name,
             "link_count": len(links),
             "links": links
+        }
+
+    def get_modifier_details(self, object_name, modifier_name=None):
+        """
+        Get detailed information about modifiers on an object.
+        
+        Parameters:
+        - object_name: Name of the object
+        - modifier_name: Optional specific modifier name
+        
+        Returns modifier info including type-specific properties.
+        """
+        obj = bpy.data.objects.get(object_name)
+        if not obj:
+            raise ValueError(f"Object not found: {object_name}. Available: {[o.name for o in bpy.data.objects]}")
+        
+        def get_input_value(modifier, identifier):
+            """Get the value of a modifier input by identifier"""
+            try:
+                val = modifier[identifier]
+                # Handle different value types
+                if val is None:
+                    return None
+                # Handle Blender ID types (Object, Material, etc.)
+                if hasattr(val, 'name') and hasattr(val, 'bl_rna'):
+                    return {"type": type(val).__name__, "name": val.name}
+                # Handle vectors, colors
+                if hasattr(val, '__iter__') and not isinstance(val, str):
+                    try:
+                        return [float(v) if isinstance(v, (int, float)) else str(v) for v in val]
+                    except (TypeError, ValueError):
+                        return str(val)
+                # Handle simple types
+                if isinstance(val, (bool, int, float, str)):
+                    return val
+                return str(val)
+            except (KeyError, TypeError):
+                return None
+        
+        def extract_modifier_info(mod):
+            """Extract information from a single modifier"""
+            mod_info = {
+                "name": mod.name,
+                "type": mod.type,
+                "show_viewport": mod.show_viewport,
+                "show_render": mod.show_render,
+            }
+            
+            # Special handling for Geometry Nodes modifiers
+            if mod.type == 'NODES':
+                if mod.node_group:
+                    mod_info["node_group"] = mod.node_group.name
+                    
+                    # Get exposed inputs from the node group interface
+                    inputs = []
+                    if hasattr(mod.node_group, 'interface'):
+                        for item in mod.node_group.interface.items_tree:
+                            if item.item_type == 'SOCKET' and item.in_out == 'INPUT':
+                                input_info = {
+                                    "name": item.name,
+                                    "identifier": item.identifier,
+                                    "socket_type": item.socket_type,
+                                }
+                                # Get the actual value from the modifier
+                                val = get_input_value(mod, item.identifier)
+                                if val is not None:
+                                    input_info["value"] = val
+                                inputs.append(input_info)
+                    mod_info["inputs"] = inputs
+                    
+                    # Get any warnings
+                    if hasattr(mod, 'node_warnings') and mod.node_warnings:
+                        mod_info["warnings"] = [w.message for w in mod.node_warnings]
+                else:
+                    mod_info["node_group"] = None
+            
+            # Add common properties for other modifier types
+            elif mod.type == 'SUBSURF':
+                mod_info["levels"] = mod.levels
+                mod_info["render_levels"] = mod.render_levels
+            elif mod.type == 'MIRROR':
+                mod_info["use_axis"] = [mod.use_axis[0], mod.use_axis[1], mod.use_axis[2]]
+            elif mod.type == 'ARRAY':
+                mod_info["count"] = mod.count
+                mod_info["relative_offset_displace"] = list(mod.relative_offset_displace)
+            elif mod.type == 'BEVEL':
+                mod_info["width"] = mod.width
+                mod_info["segments"] = mod.segments
+            elif mod.type == 'SOLIDIFY':
+                mod_info["thickness"] = mod.thickness
+            
+            return mod_info
+        
+        # If specific modifier requested
+        if modifier_name:
+            mod = obj.modifiers.get(modifier_name)
+            if not mod:
+                raise ValueError(f"Modifier not found: {modifier_name}. Available: {[m.name for m in obj.modifiers]}")
+            return extract_modifier_info(mod)
+        
+        # Return all modifiers
+        return {
+            "object_name": obj.name,
+            "modifier_count": len(obj.modifiers),
+            "modifiers": [extract_modifier_info(m) for m in obj.modifiers]
         }
 
     def get_viewport_screenshot(self, max_size=800, filepath=None, format="png"):

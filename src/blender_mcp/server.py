@@ -392,6 +392,35 @@ def get_node_links(ctx: Context, node_tree_name: str) -> str:
 
 
 @mcp.tool()
+def get_modifier_details(ctx: Context, object_name: str, modifier_name: str = None) -> str:
+    """
+    Get detailed information about modifiers on a Blender object.
+    
+    This is especially useful for Geometry Nodes modifiers, where it reveals:
+    - The node group being used
+    - All exposed input values (the modifier panel settings)
+    - Any warnings from the node tree
+    
+    Parameters:
+    - object_name: Name of the object to inspect
+    - modifier_name: Optional - specific modifier name. If not provided, returns all modifiers.
+    
+    Returns modifier stack with types, settings, and for NodesModifier: the node group and input values.
+    """
+    try:
+        blender = get_blender_connection()
+        params = {"object_name": object_name}
+        if modifier_name:
+            params["modifier_name"] = modifier_name
+        
+        result = blender.send_command("get_modifier_details", params)
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting modifier details: {str(e)}")
+        return f"Error getting modifier details: {str(e)}"
+
+
+@mcp.tool()
 def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
     """
     Get a list of categories for a specific asset type on Polyhaven.
