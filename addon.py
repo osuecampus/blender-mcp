@@ -206,6 +206,11 @@ class BlenderMCPServer:
             "get_node_links": self.get_node_links,
             "get_modifier_details": self.get_modifier_details,
             "list_node_trees": self.list_node_trees,
+            "list_materials": self.list_materials,
+            "get_material_nodes": self.get_material_nodes,
+            "get_selection": self.get_selection,
+            "set_selection": self.set_selection,
+            "batch_rename": self.batch_rename,
             "get_viewport_screenshot": self.get_viewport_screenshot,
             "execute_code": self.execute_code,
             "get_polyhaven_status": self.get_polyhaven_status,
@@ -695,6 +700,305 @@ class BlenderMCPServer:
             "material_node_trees": material_trees,
             "total_node_groups": len(bpy.data.node_groups),
             "total_materials_with_nodes": len(material_trees)
+        }
+
+    def list_materials(self):
+        """
+        List all materials in the file with usage info.
+        """
+        materials = []
+        
+        for mat in bpy.data.materials:
+            mat_info = {
+                "name": mat.name,
+                "use_nodes": mat.use_nodes,
+                "users": mat.users,
+                "used_by": [],
+            }
+            
+            # Find which objects use this material
+            for obj in bpy.data.objects:
+                if obj.type == 'MESH' and obj.data:
+                    for slot in obj.material_slots:
+                        if slot.material == mat:
+                            mat_info["used_by"].append(obj.name)
+                            break
+            
+            # Basic node tree info if node-based
+            if mat.use_nodes and mat.node_tree:
+                mat_info["node_count"] = len(mat.node_tree.nodes)
+                mat_info["link_count"] = len(mat.node_tree.links)
+                
+                # Find the main shader type (Principled BSDF, etc.)
+                for node in mat.node_tree.nodes:
+                    if node.bl_idname in ('ShaderNodeBsdfPrincipled', 'ShaderNodeEmission', 
+                                          'ShaderNodeBsdfDiffuse', 'ShaderNodeBsdfGlossy',
+                                          'ShaderNodeMixShader', 'ShaderNodeBsdfGlass'):
+                        mat_info["main_shader"] = node.bl_idname.replace('ShaderNode', '')
+                        break
+            
+            materials.append(mat_info)
+        
+        return {
+            "material_count": len(materials),
+            "materials": materials
+        }
+
+    def get_material_nodes(self, material_name, node_name=None):
+        """
+        Get detailed node information for a material's shader tree.
+        """
+        mat = bpy.data.materials.get(material_name)
+        if not mat:
+            raise ValueError(f"Material not found: {material_name}. Available: {[m.name for m in bpy.data.materials]}")
+        
+        if not mat.use_nodes or not mat.node_tree:
+            return {"material_name": material_name, "use_nodes": False, "message": "Material does not use nodes"}
+        
+        node_tree = mat.node_tree
+        
+        def get_socket_value(socket):
+            """Safely extract socket default value"""
+            try:
+                if hasattr(socket, 'default_value'):
+                    val = socket.default_value
+                    if val is None:
+                        return None
+                    if hasattr(val, 'name') and hasattr(val, 'bl_rna'):
+                        return f"<{type(val).__name__}: {val.name}>"
+                    if hasattr(val, '__iter__') and not isinstance(val, str):
+                        try:
+                            return [float(v) if isinstance(v, (int, float)) else str(v) for v in val]
+                        except (TypeError, ValueError):
+                            return str(val)
+                    if isinstance(val, (bool, int, float, str)):
+                        return val
+                    return str(val)
+            except (AttributeError, TypeError, RuntimeError):
+                pass
+            return None
+        
+        def extract_node_info(node):
+            node_info = {
+                "name": node.name,
+                "bl_idname": node.bl_idname,
+                "label": node.label if node.label else None,
+                "location": [round(node.location.x, 2), round(node.location.y, 2)],
+                "inputs": [],
+                "outputs": [],
+            }
+            
+            # Node-specific properties
+            if hasattr(node, 'image') and node.image:
+                node_info["image"] = node.image.name
+            if hasattr(node, 'color_ramp'):
+                node_info["has_color_ramp"] = True
+            if hasattr(node, 'blend_type'):
+                node_info["blend_type"] = node.blend_type
+            if hasattr(node, 'operation'):
+                node_info["operation"] = node.operation
+            
+            for inp in node.inputs:
+                socket_info = {
+                    "name": inp.name,
+                    "type": inp.bl_idname if hasattr(inp, 'bl_idname') else type(inp).__name__,
+                    "is_linked": inp.is_linked,
+                }
+                if not inp.is_linked:
+                    val = get_socket_value(inp)
+                    if val is not None:
+                        socket_info["default_value"] = val
+                node_info["inputs"].append(socket_info)
+            
+            for out in node.outputs:
+                socket_info = {
+                    "name": out.name,
+                    "type": out.bl_idname if hasattr(out, 'bl_idname') else type(out).__name__,
+                    "is_linked": out.is_linked,
+                }
+                node_info["outputs"].append(socket_info)
+            
+            return node_info
+        
+        # Get links
+        links = []
+        for link in node_tree.links:
+            links.append({
+                "from_node": link.from_node.name,
+                "from_socket": link.from_socket.name,
+                "to_node": link.to_node.name,
+                "to_socket": link.to_socket.name,
+            })
+        
+        if node_name:
+            node = node_tree.nodes.get(node_name)
+            if not node:
+                raise ValueError(f"Node not found: {node_name}. Available: {[n.name for n in node_tree.nodes]}")
+            return extract_node_info(node)
+        
+        return {
+            "material_name": mat.name,
+            "node_count": len(node_tree.nodes),
+            "link_count": len(node_tree.links),
+            "nodes": [extract_node_info(n) for n in node_tree.nodes],
+            "links": links
+        }
+
+    def get_selection(self):
+        """
+        Get current selection state.
+        """
+        context = bpy.context
+        
+        result = {
+            "active_object": None,
+            "selected_objects": [],
+            "selection_count": 0,
+            "mode": context.mode,
+        }
+        
+        # Active object
+        if context.active_object:
+            obj = context.active_object
+            result["active_object"] = {
+                "name": obj.name,
+                "type": obj.type,
+                "location": [round(obj.location.x, 4), round(obj.location.y, 4), round(obj.location.z, 4)],
+            }
+        
+        # All selected objects
+        for obj in context.selected_objects:
+            result["selected_objects"].append({
+                "name": obj.name,
+                "type": obj.type,
+                "is_active": (obj == context.active_object),
+            })
+        
+        result["selection_count"] = len(context.selected_objects)
+        
+        return result
+
+    def set_selection(self, object_names, mode="replace", active=None):
+        """
+        Set object selection.
+        """
+        # Validate mode
+        if mode not in ("replace", "add", "remove"):
+            raise ValueError(f"Invalid mode: {mode}. Must be 'replace', 'add', or 'remove'")
+        
+        # Validate object names exist
+        not_found = []
+        objects = []
+        for name in object_names:
+            obj = bpy.data.objects.get(name)
+            if obj:
+                objects.append(obj)
+            else:
+                not_found.append(name)
+        
+        if not_found:
+            raise ValueError(f"Objects not found: {not_found}. Available: {[o.name for o in bpy.data.objects]}")
+        
+        # Apply selection based on mode
+        if mode == "replace":
+            # Deselect all first
+            bpy.ops.object.select_all(action='DESELECT')
+            for obj in objects:
+                obj.select_set(True)
+        elif mode == "add":
+            for obj in objects:
+                obj.select_set(True)
+        elif mode == "remove":
+            for obj in objects:
+                obj.select_set(False)
+        
+        # Set active object if specified
+        if active:
+            active_obj = bpy.data.objects.get(active)
+            if not active_obj:
+                raise ValueError(f"Active object not found: {active}")
+            if not active_obj.select_get():
+                raise ValueError(f"Active object must be selected: {active}")
+            bpy.context.view_layer.objects.active = active_obj
+        elif mode == "replace" and objects:
+            # Default: make first object active
+            bpy.context.view_layer.objects.active = objects[0]
+        
+        # Return new selection state
+        return self.get_selection()
+
+    def batch_rename(self, object_names=None, use_selection=False, new_base_name=None,
+                     find=None, replace=None, prefix=None, suffix=None,
+                     number_start=1, number_padding=2):
+        """
+        Batch rename objects with various modes.
+        """
+        # Get target objects
+        if use_selection:
+            objects = list(bpy.context.selected_objects)
+        elif object_names:
+            objects = []
+            not_found = []
+            for name in object_names:
+                obj = bpy.data.objects.get(name)
+                if obj:
+                    objects.append(obj)
+                else:
+                    not_found.append(name)
+            if not_found:
+                raise ValueError(f"Objects not found: {not_found}")
+        else:
+            raise ValueError("Must provide object_names or use_selection=True")
+        
+        if not objects:
+            raise ValueError("No objects to rename")
+        
+        renames = []
+        
+        # Determine rename mode
+        if new_base_name:
+            # Sequential naming: BaseName.01, BaseName.02, etc.
+            for i, obj in enumerate(objects):
+                old_name = obj.name
+                num = str(number_start + i).zfill(number_padding)
+                new_name = f"{new_base_name}.{num}"
+                obj.name = new_name
+                renames.append({"old": old_name, "new": obj.name})
+        
+        elif find is not None and replace is not None:
+            # Find/replace mode
+            for obj in objects:
+                old_name = obj.name
+                if find in old_name:
+                    new_name = old_name.replace(find, replace)
+                    obj.name = new_name
+                    renames.append({"old": old_name, "new": obj.name})
+                else:
+                    renames.append({"old": old_name, "new": old_name, "skipped": "pattern not found"})
+        
+        elif prefix:
+            # Add prefix
+            for obj in objects:
+                old_name = obj.name
+                new_name = f"{prefix}{old_name}"
+                obj.name = new_name
+                renames.append({"old": old_name, "new": obj.name})
+        
+        elif suffix:
+            # Add suffix
+            for obj in objects:
+                old_name = obj.name
+                new_name = f"{old_name}{suffix}"
+                obj.name = new_name
+                renames.append({"old": old_name, "new": obj.name})
+        
+        else:
+            raise ValueError("Must specify a rename mode: new_base_name, find/replace, prefix, or suffix")
+        
+        return {
+            "renamed_count": len([r for r in renames if r.get("old") != r.get("new")]),
+            "total_processed": len(renames),
+            "renames": renames
         }
 
     def get_viewport_screenshot(self, max_size=800, filepath=None, format="png"):

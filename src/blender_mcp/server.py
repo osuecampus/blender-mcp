@@ -447,6 +447,166 @@ def list_node_trees(ctx: Context) -> str:
 
 
 @mcp.tool()
+def list_materials(ctx: Context) -> str:
+    """
+    List all materials in the Blender file with details.
+    
+    Returns for each material:
+    - Name and whether it uses nodes
+    - User count (how many objects use it)
+    - Which objects use it
+    - Basic shader info (if node-based)
+    
+    Use this to find materials before inspecting them with get_material_nodes.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("list_materials", {})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error listing materials: {str(e)}")
+        return f"Error listing materials: {str(e)}"
+
+
+@mcp.tool()
+def get_material_nodes(ctx: Context, material_name: str, node_name: str = None) -> str:
+    """
+    Get detailed node information for a material's shader node tree.
+    
+    Similar to get_node_details but specifically for material shader nodes.
+    
+    Parameters:
+    - material_name: Name of the material to inspect
+    - node_name: Optional - specific node to get details for
+    
+    Returns node types, connections, and values - useful for understanding
+    shader setups before baking or modifying them.
+    """
+    try:
+        blender = get_blender_connection()
+        params = {"material_name": material_name}
+        if node_name:
+            params["node_name"] = node_name
+        result = blender.send_command("get_material_nodes", params)
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting material nodes: {str(e)}")
+        return f"Error getting material nodes: {str(e)}"
+
+
+@mcp.tool()
+def get_selection(ctx: Context) -> str:
+    """
+    Get the currently selected objects and the active object.
+    
+    Returns:
+    - active_object: The object that operations will target
+    - selected_objects: List of all selected objects with types
+    - selection_count: Number of selected objects
+    
+    Essential for understanding context before giving directions.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("get_selection", {})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting selection: {str(e)}")
+        return f"Error getting selection: {str(e)}"
+
+
+@mcp.tool()
+def set_selection(
+    ctx: Context,
+    object_names: list[str],
+    mode: str = "replace",
+    active: str = None
+) -> str:
+    """
+    Set the object selection in Blender.
+    
+    Parameters:
+    - object_names: List of object names to select
+    - mode: "replace" (clear and select), "add" (add to selection), "remove" (deselect)
+    - active: Optional - set this object as active (must be in selection)
+    
+    Returns confirmation with the new selection state.
+    """
+    try:
+        blender = get_blender_connection()
+        params = {
+            "object_names": object_names,
+            "mode": mode
+        }
+        if active:
+            params["active"] = active
+        result = blender.send_command("set_selection", params)
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error setting selection: {str(e)}")
+        return f"Error setting selection: {str(e)}"
+
+
+@mcp.tool()
+def batch_rename(
+    ctx: Context,
+    object_names: list[str] = None,
+    use_selection: bool = False,
+    new_base_name: str = None,
+    find: str = None,
+    replace: str = None,
+    prefix: str = None,
+    suffix: str = None,
+    number_start: int = 1,
+    number_padding: int = 2
+) -> str:
+    """
+    Batch rename objects with various options.
+    
+    Target objects:
+    - object_names: List of specific objects to rename
+    - use_selection: If True, rename currently selected objects
+    
+    Rename modes (use one):
+    - new_base_name: Rename all to "BaseName.001", "BaseName.002", etc.
+    - find/replace: Find and replace text in names
+    - prefix: Add prefix to existing names
+    - suffix: Add suffix to existing names
+    
+    Options:
+    - number_start: Starting number for sequential naming (default 1)
+    - number_padding: Zero-padding width (default 2 → "01", "02")
+    
+    Returns list of old → new name mappings.
+    """
+    try:
+        blender = get_blender_connection()
+        params = {
+            "use_selection": use_selection,
+            "number_start": number_start,
+            "number_padding": number_padding
+        }
+        if object_names:
+            params["object_names"] = object_names
+        if new_base_name:
+            params["new_base_name"] = new_base_name
+        if find is not None:
+            params["find"] = find
+        if replace is not None:
+            params["replace"] = replace
+        if prefix:
+            params["prefix"] = prefix
+        if suffix:
+            params["suffix"] = suffix
+        
+        result = blender.send_command("batch_rename", params)
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error batch renaming: {str(e)}")
+        return f"Error batch renaming: {str(e)}"
+
+
+@mcp.tool()
 def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
     """
     Get a list of categories for a specific asset type on Polyhaven.
