@@ -205,6 +205,7 @@ class BlenderMCPServer:
             "get_node_details": self.get_node_details,
             "get_node_links": self.get_node_links,
             "get_modifier_details": self.get_modifier_details,
+            "list_node_trees": self.list_node_trees,
             "get_viewport_screenshot": self.get_viewport_screenshot,
             "execute_code": self.execute_code,
             "get_polyhaven_status": self.get_polyhaven_status,
@@ -630,6 +631,70 @@ class BlenderMCPServer:
             "object_name": obj.name,
             "modifier_count": len(obj.modifiers),
             "modifiers": [extract_modifier_info(m) for m in obj.modifiers]
+        }
+
+    def list_node_trees(self):
+        """
+        List all node trees (node groups) in the file.
+        
+        Returns node trees organized by type with usage information.
+        """
+        # Organize by type
+        by_type = {}
+        
+        for ng in bpy.data.node_groups:
+            tree_type = ng.bl_idname
+            if tree_type not in by_type:
+                by_type[tree_type] = []
+            
+            tree_info = {
+                "name": ng.name,
+                "node_count": len(ng.nodes),
+                "link_count": len(ng.links),
+                "users": [],
+            }
+            
+            # Find what uses this node tree
+            # Check modifiers on objects
+            for obj in bpy.data.objects:
+                for mod in obj.modifiers:
+                    if mod.type == 'NODES' and mod.node_group == ng:
+                        tree_info["users"].append({
+                            "type": "modifier",
+                            "object": obj.name,
+                            "modifier": mod.name
+                        })
+            
+            # Check if used as a group node inside other node trees
+            for other_ng in bpy.data.node_groups:
+                if other_ng != ng:
+                    for node in other_ng.nodes:
+                        if node.bl_idname in ('GeometryNodeGroup', 'ShaderNodeGroup', 'CompositorNodeGroup'):
+                            if hasattr(node, 'node_tree') and node.node_tree == ng:
+                                tree_info["users"].append({
+                                    "type": "node_group",
+                                    "parent_tree": other_ng.name,
+                                    "node_name": node.name
+                                })
+            
+            by_type[tree_type].append(tree_info)
+        
+        # Also check material node trees
+        material_trees = []
+        for mat in bpy.data.materials:
+            if mat.use_nodes and mat.node_tree:
+                material_trees.append({
+                    "name": mat.name,
+                    "node_count": len(mat.node_tree.nodes),
+                    "link_count": len(mat.node_tree.links),
+                    "type": "material"
+                })
+        
+        return {
+            "node_groups": by_type,
+            "material_node_trees": material_trees,
+            "total_node_groups": len(bpy.data.node_groups),
+            "total_materials_with_nodes": len(material_trees)
         }
 
     def get_viewport_screenshot(self, max_size=800, filepath=None, format="png"):

@@ -421,6 +421,32 @@ def get_modifier_details(ctx: Context, object_name: str, modifier_name: str = No
 
 
 @mcp.tool()
+def list_node_trees(ctx: Context) -> str:
+    """
+    List all node trees (node groups) available in the Blender file.
+    
+    Returns node trees organized by type:
+    - GeometryNodeTree: Geometry Nodes groups
+    - ShaderNodeTree: Material/shader node groups  
+    - CompositorNodeTree: Compositing node groups
+    
+    For each node tree, shows:
+    - Name and type
+    - Node count and link count
+    - Which objects/materials use it (for tracking dependencies)
+    
+    Use this to discover available node groups before calling get_node_details or get_node_links.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("list_node_trees", {})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error listing node trees: {str(e)}")
+        return f"Error listing node trees: {str(e)}"
+
+
+@mcp.tool()
 def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
     """
     Get a list of categories for a specific asset type on Polyhaven.
