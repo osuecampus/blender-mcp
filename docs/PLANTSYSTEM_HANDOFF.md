@@ -7,6 +7,7 @@ The PlantSystem is a Blender geometry nodes network for procedural plant generat
 ### What Works ✓ (13 of 15 parameters)
 
 **Trunk Parameters:**
+
 - **Trunk Count** - Exact number of trunks to generate (density normalized by grid area)
 - **Trunk Height** - Controls Z height of trunks  
 - **Height Variation** - Random per-trunk height scaling (0=uniform, 1=huge range)
@@ -19,6 +20,7 @@ The PlantSystem is a Blender geometry nodes network for procedural plant generat
 - **Seed** - Controls distribution pattern and all randomization
 
 **Branch Parameters:**
+
 - **Branches Per Level** - Number of branches per trunk (sampled along trunk height)
 - **Branch Length Ratio** - Branch length as ratio of trunk height (0.5 = half trunk height)
 - **Branch Angle** - Angle in degrees branches spread from trunk (45° typical)
@@ -701,6 +703,7 @@ bpy.context.view_layer.update()
 ## Session History
 
 ### 2025-12-05 (Session 3)
+
 - ✅ Implemented procedural bark material (14 shader nodes)
 - ✅ Fixed bark texture to use Generated coordinates (follows trunk direction)
 - ✅ Implemented branching system (21 new geometry nodes)
@@ -710,10 +713,12 @@ bpy.context.view_layer.update()
 - **Network grew from 53 to 74 nodes**
 
 ### 2025-12-05 (Session 2)
+
 - ✅ Implemented crook system for trunk bending
 - ✅ Fixed trunk count accuracy (density normalization)
 - ✅ Restructured to apply crook to curves before mesh conversion
 
 ### 2024-12-06 (Session 1)
+
 - ✅ Added taper, lean, and height variation
 - ✅ Initial PlantSystem rebuild

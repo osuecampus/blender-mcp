@@ -10,11 +10,11 @@ This is NOT about running Python scripts locally - it's about sending commands t
 
 ```
 ┌─────────────────┐     Socket (9876)     ┌─────────────────────┐
-│  MCP Server     │◄────────────────────►│  Blender Addon      │
+│  MCP Server     │◄────────────────────► │  Blender Addon      │
 │  (server.py)    │                       │  (addon.py)         │
 └─────────────────┘                       └─────────────────────┘
         │                                          │
-        │ MCP Tools                               │ Blender Python API
+        │ MCP Tools                                │ Blender Python API
         ▼                                          ▼
 ┌─────────────────┐                       ┌─────────────────────┐
 │  Copilot/Claude │                       │  Blender Scene      │
