@@ -243,6 +243,34 @@ def download_texture_and_apply(texture_name: str, object_name: str) -> str:
     return bridge.apply_texture_to_object(object_name, matching_asset)
 
 
+def analyze_scene(output_format: str = "text", filepath: str = None) -> str:
+    """
+    Analyze the current Blender scene including geometry nodes, materials, and objects.
+    
+    Args:
+        output_format: "text" for console output, "markdown" for markdown format
+        filepath: Optional path to save the report
+    
+    Returns:
+        The analysis report as a string
+    """
+    from scene_analyzer import SceneAnalyzer
+    analyzer = SceneAnalyzer()
+    
+    if output_format == "markdown":
+        return analyzer.export_to_markdown(filepath)
+    else:
+        analysis = analyzer.full_analysis()
+        report = analyzer.print_report(analysis)
+        
+        if filepath:
+            with open(filepath, 'w') as f:
+                f.write(report)
+            return f"Report saved to {filepath}\n\n{report}"
+        
+        return report
+
+
 def demo_copilot_integration():
     """Demonstrate how GitHub Copilot can use these functions"""
     print("🚀 GitHub Copilot + BlenderMCP Integration Demo")

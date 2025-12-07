@@ -70,6 +70,89 @@ result = bridge.execute_blender_code(blender_code)
 - `download_sketchfab_model(uid)` - Download Sketchfab models
 - `search_polyhaven_assets(query)` - Search PolyHaven assets
 
+### 5. Scene Analysis Tool
+
+Use `scene_analyzer.py` or the `analyze_scene()` function for comprehensive scene documentation:
+
+```python
+from scene_analyzer import SceneAnalyzer, analyze_scene
+
+# Quick summary
+from scene_analyzer import quick_geonodes_summary
+print(quick_geonodes_summary())
+
+# Full analysis
+report = analyze_scene()  # Returns text report
+print(report)
+
+# Export to markdown
+analyze_scene(output_format="markdown", filepath="scene_report.md")
+
+# Programmatic access
+analyzer = SceneAnalyzer()
+analysis = analyzer.full_analysis()  # Returns dict with all data
+```
+
+**Scene Analyzer Features:**
+
+- Lists all geometry node groups with node/link counts
+- Shows parameters with socket IDs, types, and defaults
+- Displays current parameter values per object
+- Analyzes materials and shader node types
+- Maps collections and object hierarchies
+- Exports to text or markdown format
+
+**Command Line Usage:**
+
+```bash
+python scene_analyzer.py              # Full text report
+python scene_analyzer.py --quick      # Quick geonode summary
+python scene_analyzer.py --format markdown -o report.md  # Markdown export
+```
+
+### 6. Geometry Node Helper
+
+Use `geonode_helper.py` for organizing nodes with frames:
+
+```python
+from geonode_helper import GeoNodeHelper, frame_new_nodes, create_frame, FRAME_COLORS
+
+helper = GeoNodeHelper()
+
+# After creating nodes, frame all unparented ones
+result = frame_new_nodes("PlantSystem", "New Feature")
+
+# Create a frame around specific nodes
+create_frame("PlantSystem", "My Section", ["Node1", "Node2"], FRAME_COLORS["math"])
+
+# List all frames
+frames = helper.list_frames("PlantSystem")
+
+# Rename a frame
+helper.rename_frame("PlantSystem", "Old Name", "New Name")
+
+# Set frame color (for debugging - make it stand out)
+helper.set_frame_color("PlantSystem", "look here", FRAME_COLORS["debug"])
+
+# Clean up empty frames
+helper.delete_empty_frames("PlantSystem")
+```
+
+**Standard Frame Colors:**
+
+- `new` (blue): Unorganized/new nodes
+- `input` (green): Input processing
+- `output` (red): Output processing
+- `transform` (orange): Transformations
+- `math` (purple): Math operations
+- `debug` (bright red): Debugging sections
+
+**Workflow for Creating Nodes:**
+
+1. Create nodes with `execute_blender_code()`
+2. Call `frame_new_nodes("NodeGroup", "Feature Name")` to wrap them
+3. User can then visually organize the framed nodes in Blender
+
 ## 3D Modeling Best Practices
 
 ### Material Creation

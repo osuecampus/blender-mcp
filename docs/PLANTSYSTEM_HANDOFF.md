@@ -4,7 +4,7 @@
 
 The PlantSystem is a Blender geometry nodes network for procedural plant generation. It was **rebuilt on 2024-12-05**, **extended on 2024-12-06** with taper, lean, and height variation features, **extended on 2025-12-05** with crook (trunk bending) system, and **extended on 2025-12-05** with branching system and procedural bark material.
 
-### What Works ✓ (13 of 15 parameters)
+### What Works ✓ (14 of 16 parameters)
 
 **Trunk Parameters:**
 
@@ -12,10 +12,10 @@ The PlantSystem is a Blender geometry nodes network for procedural plant generat
 - **Trunk Height** - Controls Z height of trunks  
 - **Height Variation** - Random per-trunk height scaling (0=uniform, 1=huge range)
 - **Trunk Radius** - Controls trunk tube thickness (base radius)
-- **Trunk Taper** - Controls radius reduction from base to tip (0=cylinder, 1=cone)
+- **Trunk Taper** - Controls radius reduction from base to tip (0=cylinder, 1=cone) - also applies to branches
 - **Chaos** - Per-point random XY offset (uses Index+Seed for variation)
 - **Lean** - Random trunk tilt in radians (0.3 ≈ 8°, 0.6 ≈ 22°)
-- **Crook** - Noise-based trunk bending strength (0=straight, 1+=curved)
+- **Crook** - Noise-based trunk/branch bending strength (0=straight, 1+=curved)
 - **Crook Scale** - Noise frequency for bends (low=gentle curves, high=wiggly)
 - **Seed** - Controls distribution pattern and all randomization
 
@@ -24,6 +24,7 @@ The PlantSystem is a Blender geometry nodes network for procedural plant generat
 - **Branches Per Level** - Number of branches per trunk (sampled along trunk height)
 - **Branch Length Ratio** - Branch length as ratio of trunk height (0.5 = half trunk height)
 - **Branch Angle** - Angle in degrees branches spread from trunk (45° typical)
+- **Radial Chaos** - Controls branch distribution around trunk (0=even spacing, 1=random)
 
 ### What Does NOT Work ✗ (2 parameters)
 
@@ -40,9 +41,9 @@ None - the Point Cloud warning was fixed by switching to mesh-based distribution
 
 ### Node Count
 
-- **74 nodes**, **91 links** (after branching system and bark material)
+- **98 nodes**, **120 links** (after branch taper and crook systems)
 
-### Interface Parameters (16 sockets total)
+### Interface Parameters (17 sockets total)
 
 | Socket ID | Parameter | Type | Default | Status |
 |-----------|-----------|------|---------|--------|
@@ -56,6 +57,7 @@ None - the Point Cloud warning was fixed by switching to mesh-based distribution
 | Socket_5 | Branch Generations | Int | 2 | NOT CONNECTED (needs Repeat Zone) |
 | Socket_6 | Branch Length Ratio | Float | 0.5 | ✓ Working → BranchLengthMult |
 | Socket_7 | Branch Angle | Float | 45.0 | ✓ Working → BranchAngleToRad |
+| Socket_17 | Radial Chaos | Float | 0.5 | ✓ Working → MixRadialChaos (0=even, 1=random) |
 | Socket_10 | Seed | Int | 42 | ✓ Working → Distribute + all random nodes |
 | Socket_8 | Chaos | Float | 0.3 | ✓ Working → ChaosScale.Scale |
 | Socket_9 | Gravity | Float | 0.2 | NOT CONNECTED |
@@ -483,13 +485,14 @@ mod.show_viewport = True
 
 ## Summary
 
-**Status as of 2025-12-05:** The PlantSystem is working with 13 of 15 parameters connected:
+**Status as of 2025-12-06:** The PlantSystem is working with 14 of 17 parameters connected:
 
 - ✅ Trunk Count, Trunk Height, Height Variation, Trunk Radius, Trunk Taper, Chaos, Lean, Crook, Crook Scale, Seed
-- ✅ Branches Per Level, Branch Length Ratio, Branch Angle
-- ⏳ Branch Generations, Gravity
+- ✅ Branches Per Level, Branch Length Ratio, Branch Angle, Radial Chaos
+- ✅ Taper and Crook now apply to both trunks AND branches
+- ⏳ Branch Generations, Gravity (not connected)
 
-**Network Stats:** 74 nodes, 91 links, validation passed
+**Network Stats:** 98 nodes, 120 links, validation passed
 
 **Key lessons learned:**
 
@@ -503,6 +506,11 @@ mod.show_viewport = True
 8. **Use Generated coordinates for materials on instanced geometry** - Object coordinates follow global axes, Generated follows local mesh bounding box.
 9. **Trim Curve to control branch distribution** - Use TrimCurve with factor mode to limit branches to specific trunk height range (30%-85%).
 10. **Align branches to trunk tangent** - Use `Align Euler to Vector` with curve tangent output for proper branch orientation.
+11. **Even distribution with variation** - For evenly-spaced branches with per-trunk variety: `(Index / Count) × 2π + RandomOffset`. Mix with full random using a "chaos" parameter.
+12. **Reuse parameters across systems** - Trunk Taper and Crook can apply to branches too by wiring the same Group Input socket to both trunk and branch node chains.
+13. **Scale effects by element size** - Branch crook multiplies by Branch Length Ratio so smaller branches have proportionally smaller bends, keeping visual consistency.
+14. **Resample curves before taper** - Curves need multiple control points for smooth taper; use `Resample Curve` with COUNT mode before `Set Curve Radius`.
+15. **ResampleCurve mode is a socket, not attribute** - In Blender 5.0+, the mode selector is accessed via `inputs["Mode"]`, not a node attribute.
 
 **Next session:** Implement Branch Generations with Repeat Zone, add Gravity effect.
 
@@ -580,13 +588,99 @@ InstanceBranches
 | Branches Per Level | Socket_4 | Number of branches per trunk |
 | Branch Length Ratio | Socket_6 | Branch length = Trunk Height × Ratio |
 | Branch Angle | Socket_7 | Angle (degrees) from vertical |
+| Radial Chaos | Socket_17 | 0=even spacing, 1=random distribution |
 
 ### Branch Distribution
 
 - **Height Range:** 30% to 85% of trunk height (via TrimForBranches)
-- **Radial Distribution:** Random 0-360° around trunk (via BranchZRandom)
+- **Radial Distribution:** Controlled by Radial Chaos (0=even, 1=random)
 - **Orientation:** Aligned to trunk tangent for natural appearance
 - **Radius:** 40% of trunk radius (via BranchRadiusScale)
+
+### Radial Chaos System (Added 2025-12-06)
+
+The Radial Chaos parameter blends between even branch spacing and random distribution:
+
+```
+BranchIndex
+    ↓
+IndexDivideCount (Index / Branches Per Level)
+    ↓
+EvenAngle (× 2π) → gives 0°, 72°, 144°, etc. for 5 branches
+    ↓
+AddTrunkOffset (+ TrunkOffsetRandom)
+    │   └── Random 0-2π per trunk for variety
+    ↓
+MixRadialChaos
+    ├── Factor: Radial Chaos (0-1)
+    ├── A: Even angle + trunk offset
+    └── B: BranchZRandom (fully random)
+    ↓
+BranchZCombine → BranchZEuler → rotation chain
+```
+
+| Node | Purpose |
+|------|---------|
+| BranchCountToFloat | Converts branch count to float for division |
+| IndexDivideCount | Index / Count for even distribution |
+| EvenAngle | Multiply by 2π for full rotation |
+| TrunkOffsetRandom | Random starting offset per trunk |
+| AddTrunkOffset | Adds offset to even angle |
+| MixRadialChaos | Blends between even (A) and random (B) |
+
+### Branch Taper System (Added 2025-12-06)
+
+Branches now use the same Trunk Taper parameter to taper from base to tip:
+
+```
+BranchCurve
+    ↓
+BranchResample (6 segments)
+    ↓
+BranchTaperSetRadius
+    ├── Curve: BranchResample output
+    └── Radius: BranchTaperMult output
+            └── BranchRadiusScale × TaperMapRange
+                    └── Uses same taper logic as trunks
+    ↓
+InstanceBranches
+```
+
+| Node | Purpose |
+|------|---------|
+| BranchResample | Adds curve points for taper variation |
+| BranchTaperSpline | Gets Factor (0→1) along branch |
+| BranchTaperInvert | 1 - Factor (1 at base, 0 at tip) |
+| BranchTaperMin | Calculates 1-taper for min radius |
+| BranchTaperMap | Maps to (1-taper)→1 range |
+| BranchTaperMult | Branch Radius × taper factor |
+| BranchTaperSetRadius | Sets radius on branch curve |
+
+### Branch Crook System (Added 2025-12-06)
+
+Branches use the same Crook and Crook Scale parameters as trunks, scaled by branch length:
+
+```
+RealizeBranches
+    ↓
+BranchCrookSetPosition
+    ├── Geometry: RealizeBranches output
+    └── Offset: BranchCrookLengthScale output
+            └── Noise × SplineFactor × Crook × BranchLengthRatio
+    ↓
+JoinTrunkBranches
+```
+
+| Node | Purpose |
+|------|---------|
+| BranchCrookPosition | Gets world position of branch points |
+| BranchCrookNoise | 3D Noise for organic variation |
+| BranchCrookCenter | Centers noise around 0 |
+| BranchCrookSpline | Gets position along branch (0=base, 1=tip) |
+| BranchCrookDistScale | Scales offset by distance along branch |
+| BranchCrookParamScale | Scales by Crook parameter |
+| BranchCrookLengthScale | Scales by Branch Length Ratio (smaller branches = less crook) |
+| BranchCrookSetPosition | Applies offset to realized branches |
 
 ---
 
@@ -691,6 +785,7 @@ mod["Socket_10"] = 42     # Seed
 mod["Socket_4"] = 5       # Branches Per Level
 mod["Socket_6"] = 0.5     # Branch Length Ratio
 mod["Socket_7"] = 45.0    # Branch Angle (degrees)
+mod["Socket_17"] = 0.3    # Radial Chaos (0=even, 1=random)
 
 # Force update
 mod.show_viewport = False
@@ -701,6 +796,17 @@ bpy.context.view_layer.update()
 ---
 
 ## Session History
+
+### 2025-12-06 (Session 4)
+
+- ✅ Implemented Radial Chaos parameter (Socket_17)
+- ✅ Created even distribution system: (Index / Count) × 2π
+- ✅ Added per-trunk random offset for variety between trunks
+- ✅ Mix node blends between even (0) and random (1) distribution
+- ✅ Added branch taper system (7 new nodes) - reuses Trunk Taper parameter
+- ✅ Added branch crook system (8 new nodes) - reuses Crook and Crook Scale parameters
+- ✅ Branch crook scales by Branch Length Ratio for proportional bending
+- **Network grew from 74 to 98 nodes, 91 to 120 links**
 
 ### 2025-12-05 (Session 3)
 
