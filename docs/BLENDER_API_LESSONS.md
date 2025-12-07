@@ -4,6 +4,116 @@ This document tracks mistakes made when working with Blender via MCP and how to 
 
 ---
 
+## Session: 2025-12-07 - Tillage Simulation Clod Systems
+
+### Experiment: Four Approaches to Procedural Clods
+
+Built 4 different geometry node systems to simulate soil clods with a single "Breakdown" slider:
+
+| Approach | Technique | Result |
+|----------|-----------|--------|
+| **Test 1: Sphere Pack** | 3D grid of icospheres | Too regular/artificial |
+| **Test 2: Metaball/Volume** ✓ | Points to Volume → Volume to Mesh | **Best** - organic, consistent bounds |
+| **Test 3: Voronoi Fracture** | Voronoi texture carving subdivided cube | Good bounds but angular, expensive |
+| **Test 4: Random Packed** | Poisson disk distribution | Hollow interior, variable bounds |
+
+### Key Insight: Points to Volume is ideal for organic aggregates
+
+**Why Test 2 won:**
+
+1. Organic blobby appearance matches real soil clods
+2. Spheres naturally merge/blend at contact points
+3. Single mesh output (no instances to realize)
+4. Consistent bounds regardless of breakdown level
+5. Simple node chain: Distribute → Points to Volume → Volume to Mesh
+
+**The winning pattern:**
+
+```
+Inner Cube (smaller than container)
+    ↓
+Distribute Points on Faces (density from slider)
+    ↓
+[Optional: Second inner cube for interior points]
+    ↓
+Join Geometry
+    ↓
+Points to Volume (radius inverse of density)
+    ↓
+Volume to Mesh
+```
+
+### Lesson: Inverse Parameter Relationships for Conservation
+
+When simulating "same amount of material at different granularity":
+
+- **Count** should INCREASE with breakdown
+- **Size** should DECREASE with breakdown (inverse)
+- Volume is roughly conserved: `count × size³ ≈ constant`
+
+Map Range nodes make this easy:
+
+```python
+# Density: 0.5 → 15.0 (increases with breakdown)
+# Radius: 0.6 → 0.15 (decreases with breakdown)
+```
+
+### Lesson: Shrink Distribution Area to Contain Overflow
+
+When elements can expand beyond source geometry:
+
+- Shrink the distribution area by the element radius
+- Use an "inner cube" smaller than the container
+- For Test 2: 1.4 unit cube inside 2.0 unit container
+
+### Node Type Gotchas in Blender 5.0
+
+| Wrong | Correct |
+|-------|---------|
+| `GeometryNodeCurveLine` | `GeometryNodeCurvePrimitiveLine` |
+| `node.mode` (property) | `node.inputs["Mode"]` (socket) |
+| `invert.outputs["Value"]` | `invert.outputs[0]` or `outputs["Boolean"]` |
+
+### Lesson: Object display_type Can Hide Your Work
+
+**What happened:** After building geometry nodes with material, only saw wireframes in viewport.
+
+**Cause:** Object's `display_type` was set to `"WIRE"` instead of `"TEXTURED"`.
+
+**The fix:**
+
+```python
+obj.display_type = "TEXTURED"  # Shows materials/colors
+# Other options: "BOUNDS", "WIRE", "SOLID", "TEXTURED"
+```
+
+**Prevention:**
+
+- When creating test objects, explicitly set `display_type = "TEXTURED"`
+- If viewport looks wrong, check object display settings before debugging shaders
+- Note: This is different from viewport shading mode (SOLID/RENDERED) - both matter!
+
+### Lesson: Viewport Shading for Materials
+
+Blender 5.0 shading types: `WIREFRAME`, `SOLID`, `RENDERED` (not `MATERIAL`)
+
+To see material colors in SOLID mode:
+
+```python
+space.shading.type = "SOLID"
+space.shading.color_type = "MATERIAL"  # Shows material base colors
+space.shading.show_shadows = True
+```
+
+### Potential Tool Opportunities Identified
+
+1. **`create_parameter_slider`** - Quickly add a float parameter with min/max/default and optional inverse mapping
+2. **`create_volume_clod_system`** - Template for Points to Volume workflow
+3. **`test_bounds_consistency`** - Automate testing bounds across parameter range
+4. **`mothball_objects`** - Hide/disable objects while preserving them for reference
+
+---
+
 ## Session: 2024-12-05 - Plant Stalks Geometry Nodes
 
 ### Mistake 1: Assuming socket names without verification
@@ -763,3 +873,198 @@ result = await insert_node_between(
 - Returns new node name and connection details
 - Works with both socket names and indices
 - Validates the link exists before attempting insertion
+
+---
+
+## Session: Soil Clod System with Dynamic Scaling (2024)
+
+### Context
+
+Building a soil simulation with 4 parameters (Clod, Biomass, Roots, Hydration) using Geometry Nodes. The ClodTest2_Volume node group generates breakable soil clods using Points to Volume → Volume to Mesh. Required dynamic scaling based on a "Breakdown" parameter.
+
+### The Dynamic Scaling Problem
+
+**Goal**: Make clod dimensions scale with Breakdown parameter (0→1 should reduce size proportionally).
+
+**Failed Approach - Shader Math Nodes in GeoNodes**:
+
+```python
+# This LOOKS correct but doesn't dynamically update:
+map_range = ng.nodes.new("ShaderNodeMapRange")
+combine_xyz = ng.nodes.new("ShaderNodeCombineXYZ")
+ng.links.new(group_input.outputs["Breakdown"], map_range.inputs["Value"])
+ng.links.new(map_range.outputs["Result"], combine_xyz.inputs["X"])
+# The shader nodes calculate once at creation, then freeze
+```
+
+**Why It Fails**: ShaderNodeMapRange and similar shader nodes evaluate once when created in a Geometry Nodes context. They don't re-evaluate when upstream values change. The node tree appears correctly wired but the values remain static.
+
+### Solution: Blender Drivers as Escape Hatch
+
+When internal node math fails, use Blender's driver system on modifier sockets:
+
+```python
+# Add driver to modifier socket
+obj = bpy.data.objects["templateSoilPlane"]
+mod = obj.modifiers["GeometryNodes"]
+
+# Create driver on Socket_10 (ClodOutputScale vector)
+for i, axis in enumerate(['X', 'Y', 'Z']):
+    driver = mod.driver_add(f'["Socket_10"]', i).driver
+    driver.type = 'SCRIPTED'
+    
+    # Add variable pointing to another socket
+    var = driver.variables.new()
+    var.name = "clod"
+    var.type = 'SINGLE_PROP'
+    var.targets[0].id_type = 'OBJECT'
+    var.targets[0].id = obj
+    var.targets[0].data_path = 'modifiers["GeometryNodes"]["Socket_6"]'
+    
+    # Set expression
+    driver.expression = "0.75 + clod * 0.25"
+```
+
+**Key Insight**: Drivers operate at the modifier level, outside the node tree, so they properly update when referenced values change.
+
+### Per-Axis Dimension Compensation
+
+When scaling affects axes differently (e.g., XY expands 4x but Z stays 1x), each axis needs its own scaling slope:
+
+```python
+# Problem: Slab shape (5.6×5.6×1.4) has different dimension swing per axis
+# At Breakdown=0: full size. At Breakdown=1: clods break apart
+
+# XY axes: 30cm swing over breakdown range → slope = 0.2146
+# Z axis: ~25cm swing over breakdown range → slope = 0.97
+
+slopes = {'X': 0.2146, 'Y': 0.2146, 'Z': 0.97}
+for i, axis in enumerate(['X', 'Y', 'Z']):
+    driver.expression = f"0.75 + clod * {slopes[axis]}"
+```
+
+### MapRange for Threshold Behavior
+
+When a parameter should have "zero effect" below a threshold:
+
+```python
+# Goal: param ≤ 0.1 = no instances, 0.1→1.0 = gradual increase
+
+map_range = ng.nodes.new("ShaderNodeMapRange")
+map_range.name = "BiomassMapRange"
+map_range.inputs["From Min"].default_value = 0.1
+map_range.inputs["From Max"].default_value = 1.0
+map_range.inputs["To Min"].default_value = 0
+map_range.inputs["To Max"].default_value = 1.0  # Or max density
+map_range.clamp = True  # Critical: clamps output, not input
+
+# Connect: Parameter → MapRange → Density input
+```
+
+**Clamp Behavior**: With `clamp=True`, values below From Min output To Min, values above From Max output To Max.
+
+### Density Logic Inversion
+
+Converting from "higher param = fewer instances" to "higher param = more instances":
+
+```python
+# WRONG: Divide makes higher values produce smaller results
+math_node.operation = 'DIVIDE'  # base_density / param
+
+# CORRECT: Multiply with proper mapping
+map_range.inputs["To Max"].default_value = max_density  # e.g., 500
+math_node.operation = 'MULTIPLY'  # Or just use MapRange directly
+```
+
+### Bounding Box for Dynamic Sizing
+
+Making geometry adapt to input mesh dimensions:
+
+```python
+# Get input mesh bounds
+bbox = ng.nodes.new("GeometryNodeBoundBox")
+ng.links.new(group_input.outputs["Geometry"], bbox.inputs["Geometry"])
+
+# Calculate size: Max - Min
+size_sub = ng.nodes.new("ShaderNodeVectorMath")
+size_sub.operation = 'SUBTRACT'
+ng.links.new(bbox.outputs["Max"], size_sub.inputs[0])
+ng.links.new(bbox.outputs["Min"], size_sub.inputs[1])
+
+# Use result as Size input to generation nodes
+ng.links.new(size_sub.outputs["Vector"], clod_group.inputs["Size"])
+```
+
+### Link Replacement Pattern
+
+**DON'T** try to remove links explicitly - causes "StructRNA removed" errors:
+
+```python
+# BAD: Link removal during iteration
+for link in ng.links:
+    if link.to_socket.name == "Radius":
+        ng.links.remove(link)  # May cause StructRNA error
+        
+# GOOD: Just create new link - auto-replaces existing
+ng.links.new(source_output, target_input)  # Replaces any existing link to target_input
+```
+
+### Frame-Based Network Organization
+
+Organizing complex node networks with color-coded frames:
+
+```python
+FRAME_COLORS = {
+    'input': (0.3, 0.5, 0.3, 1.0),      # Green
+    'output': (0.5, 0.3, 0.5, 1.0),     # Purple
+    'clod': (0.3, 0.4, 0.6, 1.0),       # Blue
+    'biomass': (0.4, 0.5, 0.3, 1.0),    # Olive green
+    'roots': (0.5, 0.35, 0.25, 1.0),    # Brown
+    'data': (0.4, 0.4, 0.4, 1.0),       # Gray
+}
+
+frame = ng.nodes.new("NodeFrame")
+frame.name = "CLOD SYSTEM"
+frame.label = "CLOD SYSTEM"
+frame.use_custom_color = True
+frame.color = FRAME_COLORS['clod'][:3]
+
+# Assign nodes to frame
+for node_name in ['ClodSystem', 'ClodJoin']:
+    node = ng.nodes.get(node_name)
+    if node:
+        node.parent = frame
+```
+
+### Workflow Pattern: Columnar Layout
+
+Organize nodes in logical columns left-to-right:
+
+1. **Column 1 (X=-400)**: Input processing, bounds calculation
+2. **Column 2 (X=0)**: Main generation (clod system)
+3. **Column 3 (X=400)**: Secondary processing (biomass, roots)
+4. **Column 4 (X=600)**: Parameter mapping
+5. **Column 5 (X=800)**: Output assembly
+
+### Quick Reference: Workarounds
+
+| Problem | Workaround |
+|---------|------------|
+| Shader math nodes don't update dynamically | Use Blender drivers on modifier sockets |
+| Need per-axis different behavior | Per-axis drivers with different expressions |
+| Parameter should have "no effect" threshold | MapRange with clamp + appropriate From Min |
+| Link removal causes errors | Don't remove, just create new link (auto-replaces) |
+| Can't trace node connections visually | Use frames with color coding |
+| Node positions chaotic after editing | Columnar layout with position.x increments |
+
+### Lessons Learned
+
+1. **Shader vs Geometry Nodes**: Not all node types behave the same in Geometry Nodes context. Shader nodes (MapRange, Math, CombineXYZ) may evaluate once and freeze.
+
+2. **Drivers are Powerful**: When node-internal math fails, drivers provide a reliable alternative that properly responds to changes.
+
+3. **Test Incrementally**: After each connection change, verify the behavior actually changed. Static shader nodes can make it seem like links failed when they actually succeeded but don't update.
+
+4. **Frame Early**: Create organizational frames before the network gets complex. Much easier than reorganizing after the fact.
+
+5. **Document Socket IDs**: Modifier sockets use identifiers like "Socket_6", "Socket_10" - keep a reference of which socket ID maps to which parameter name.

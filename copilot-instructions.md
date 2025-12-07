@@ -153,6 +153,60 @@ helper.delete_empty_frames("PlantSystem")
 2. Call `frame_new_nodes("NodeGroup", "Feature Name")` to wrap them
 3. User can then visually organize the framed nodes in Blender
 
+### 7. Node Analysis and Validation Tools
+
+Use additional functions in `geonode_helper.py` for debugging and understanding node networks:
+
+```python
+from geonode_helper import (
+    analyze_geonode_group,
+    trace_node_chain,
+    validate_geonode_connections,
+    reorganize_nodes
+)
+
+# Get complete structure of a node group
+analysis = analyze_geonode_group("SoilGeometryNodes")
+print(f"Nodes: {analysis['statistics']['node_count']}")
+print(f"Links: {analysis['statistics']['link_count']}")
+for node in analysis['nodes']:
+    print(f"  {node['name']} ({node['type']})")
+
+# Trace connections from a specific node
+chain = trace_node_chain("SoilGeometryNodes", "ClodSystem", direction="downstream")
+for item in chain['chain']:
+    print(f"  {'  ' * item['depth']}{item['name']}")
+
+# Validate for issues
+validation = validate_geonode_connections("SoilGeometryNodes")
+if validation['issues']:
+    for issue in validation['issues']:
+        print(f"Issue: {issue['message']}")
+if validation['warnings']:
+    for warning in validation['warnings']:
+        print(f"Warning: {warning['message']}")
+
+# Auto-layout nodes by dependency depth
+result = reorganize_nodes("SoilGeometryNodes", strategy="columnar")
+print(f"Repositioned {result['repositioned']} nodes across {result['depth_count']} columns")
+```
+
+**Tool Descriptions:**
+
+| Tool                             | Purpose                                                     |
+| -------------------------------- | ----------------------------------------------------------- |
+| `analyze_geonode_group()`        | Dump complete node structure: nodes, links, sockets, values |
+| `trace_node_chain()`             | Follow connections upstream or downstream from a node       |
+| `validate_geonode_connections()` | Find orphans, unconnected inputs, organization issues       |
+| `reorganize_nodes()`             | Auto-layout nodes in columns by dependency depth            |
+
+**When to Use:**
+
+- **analyze**: Understanding an unfamiliar node group, documenting structure
+- **trace**: Following data flow, debugging connection issues
+- **validate**: Before finalizing a node group, finding forgotten nodes
+- **reorganize**: After major edits, cleaning up chaotic layouts
+
 ## 3D Modeling Best Practices
 
 ### Material Creation

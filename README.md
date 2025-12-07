@@ -250,6 +250,54 @@ The system uses a simple JSON-based protocol over TCP sockets:
 - Poly Haven requires downloading models, textures, and HDRI images. If you do not want to use it, please turn it off in the checkbox in Blender. 
 - Complex operations might need to be broken down into smaller steps
 
+## Developer Tools (GitHub Copilot Integration)
+
+This fork includes additional tools for developers working with Blender Geometry Nodes via GitHub Copilot:
+
+### Geometry Node Helper (`geonode_helper.py`)
+
+Python tools for analyzing and organizing geometry node networks:
+
+```python
+from geonode_helper import (
+    analyze_geonode_group,      # Dump complete node structure
+    trace_node_chain,           # Follow connections upstream/downstream
+    validate_geonode_connections,  # Find orphans, unconnected inputs
+    reorganize_nodes,           # Auto-layout by dependency depth
+    list_frames, create_frame,  # Frame management
+    FRAME_COLORS                # Predefined frame colors
+)
+
+# Example: Analyze a node group
+result = analyze_geonode_group("MyGeoNodes")
+print(f"Nodes: {result['statistics']['node_count']}")
+print(f"Links: {result['statistics']['link_count']}")
+
+# Example: Validate for issues
+validation = validate_geonode_connections("MyGeoNodes")
+if validation['issues']:
+    for issue in validation['issues']:
+        print(f"Issue: {issue['message']}")
+```
+
+### Scene Analyzer (`scene_analyzer.py`)
+
+Comprehensive scene documentation:
+
+```python
+from scene_analyzer import quick_geonodes_summary, analyze_scene
+
+# Quick overview
+print(quick_geonodes_summary())
+
+# Full analysis to markdown
+analyze_scene(output_format="markdown", filepath="scene_report.md")
+```
+
+### Documentation
+
+- `copilot-instructions.md` - Workflow guidelines for Copilot agents
+- `docs/BLENDER_API_LESSONS.md` - Lessons learned from Geometry Nodes development
 
 ## Contributing
 
