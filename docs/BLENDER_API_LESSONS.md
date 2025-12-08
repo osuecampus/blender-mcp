@@ -4,6 +4,131 @@ This document tracks mistakes made when working with Blender via MCP and how to 
 
 ---
 
+## Session: 2025-12-07 - Clod Material & Attribute System
+
+### Milestone: Complete Clod Visualization Pipeline
+
+Completed a full pipeline from geometry nodes parameters to shader-driven material appearance:
+
+| Component | Purpose |
+|-----------|---------|
+| **SoilGeometryNodes** | 4 manual parameters (Clod, Biomass, Roots, Hydration) |
+| **ClodTest2_Volume** | Volume-based clod generation with inverse radius/density |
+| **StoreHydration** | Named attribute for shader access |
+| **StoreClodScale** | Texture scale attribute based on clod size |
+| **clodMaterial** | Triplanar texture projection with hydration response |
+
+### Lesson: Set Material Node Requires Material Slots
+
+**What happened:** `Set Material` node in geometry nodes assigned `clodMaterial`, but mesh rendered grey.
+
+**Cause:** Geometry nodes can only apply materials that exist in the object's material slots.
+
+**The fix:**
+
+```python
+obj = bpy.data.objects.get("templateSoilPlane")
+materials_needed = ["clodMaterial", "biomassMaterial", "rootMaterial"]
+for mat_name in materials_needed:
+    mat = bpy.data.materials.get(mat_name)
+    if mat and mat not in [slot.material for slot in obj.material_slots]:
+        obj.data.materials.append(mat)
+```
+
+**Prevention:** Always add materials to object slots before using them in geometry nodes Set Material.
+
+### Lesson: Viewport Shading vs Render Engine
+
+**What happened:** Texture connected correctly in shader but only brown color visible, no texture.
+
+**Root causes identified:**
+
+1. Viewport was in `SOLID` mode (Workbench engine) - doesn't show node-based textures
+2. Render engine was `BLENDER_WORKBENCH`
+
+**The fix:**
+
+```python
+bpy.context.scene.render.engine = "BLENDER_EEVEE"  # or "CYCLES"
+
+for area in bpy.context.screen.areas:
+    if area.type == "VIEW_3D":
+        for space in area.spaces:
+            if space.type == "VIEW_3D":
+                space.shading.type = "RENDERED"
+```
+
+**Key insight:** `SOLID` mode with `color_type = "MATERIAL"` only shows `diffuse_color`, not node-based textures.
+
+### Lesson: Triplanar Projection for Procedural Geometry
+
+**What happened:** Texture on Volume-to-Mesh clods was stretched vertically on sides.
+
+**Cause:** Using `Object` or `Generated` coordinates projects from one axis only.
+
+**Solution: Triplanar (Box) Projection**
+
+```
+Geometry.Normal → SeparateXYZ → AbsX, AbsY, AbsZ (weights)
+Mapping.Vector → SeparateXYZ → CombineYZ, CombineXZ, CombineXY (projections)
+    ↓
+TexX (YZ coords), TexY (XZ coords), TexZ (XY coords)
+    ↓
+MixXY (blend X and Y faces) → MixXYZ (blend with Z faces) → BSDF
+```
+
+**Blending formula:**
+
+```python
+# Mix X and Y projections
+factor_xy = abs_y / (abs_x + abs_y)
+# Mix result with Z projection  
+factor_z = abs_z / (abs_x + abs_y + abs_z)
+```
+
+### Lesson: Named Attributes for Shader Communication
+
+**Pattern established:** Store values in geometry nodes, read in shader.
+
+**Geometry Nodes side:**
+
+```python
+store_attr = nodes.new("GeometryNodeStoreNamedAttribute")
+store_attr.data_type = "FLOAT"
+store_attr.domain = "POINT"
+store_attr.inputs["Name"].default_value = "clodScale"
+# Insert into geometry chain before output
+```
+
+**Shader side:**
+
+```python
+attr = nodes.new("ShaderNodeAttribute")
+attr.attribute_name = "clodScale"
+# Use attr.outputs["Fac"] for float, attr.outputs["Color"] for vector
+```
+
+### Lesson: Dynamic Texture Scale Based on Geometry
+
+**Goal:** Larger clods should have coarser (larger) texture appearance.
+
+**Implementation:**
+
+1. Map Range in geometry nodes: `Clod 0→1` maps to `scale 1.5→0.3`
+2. Store as "clodScale" attribute
+3. Shader Attribute node reads "clodScale"
+4. Connect to Mapping node Scale input
+
+**Key insight:** Lower scale value = larger texture appearance (less tiling).
+
+### Potential Tool Opportunities
+
+1. **`setup_triplanar_material`** - Auto-create triplanar projection setup
+2. **`connect_attribute_to_shader`** - Bridge geometry nodes attribute to shader input
+3. **`ensure_material_slots`** - Add required materials to object before Set Material usage
+
+---
+
 ## Session: 2025-12-07 - Tillage Simulation Clod Systems
 
 ### Experiment: Four Approaches to Procedural Clods
