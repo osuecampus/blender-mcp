@@ -9,4 +9,5 @@ wheels/
 # Virtual environments
 .venv
 blender/Textures and Reference/*.pptx
+blender/
 *.blend1
