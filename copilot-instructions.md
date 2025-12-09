@@ -47,8 +47,13 @@ The standard pattern for 3D modeling:
 
 ```python
 import sys
-sys.path.append('/home/nick/GIT/blender-mcp')
-from copilot_bridge import BlenderCopilotBridge
+import os
+
+# Add blender-mcp to path (adjust based on your workspace location)
+BLENDER_MCP_PATH = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, BLENDER_MCP_PATH)
+
+from tools.copilot_bridge import BlenderCopilotBridge
 
 bridge = BlenderCopilotBridge()
 
@@ -72,13 +77,13 @@ result = bridge.execute_blender_code(blender_code)
 
 ### 5. Scene Analysis Tool
 
-Use `scene_analyzer.py` or the `analyze_scene()` function for comprehensive scene documentation:
+Use `tools/scene_analyzer.py` or the `analyze_scene()` function for comprehensive scene documentation:
 
 ```python
-from scene_analyzer import SceneAnalyzer, analyze_scene
+from tools.scene_analyzer import SceneAnalyzer, analyze_scene
 
 # Quick summary
-from scene_analyzer import quick_geonodes_summary
+from tools.scene_analyzer import quick_geonodes_summary
 print(quick_geonodes_summary())
 
 # Full analysis
@@ -105,17 +110,17 @@ analysis = analyzer.full_analysis()  # Returns dict with all data
 **Command Line Usage:**
 
 ```bash
-python scene_analyzer.py              # Full text report
-python scene_analyzer.py --quick      # Quick geonode summary
-python scene_analyzer.py --format markdown -o report.md  # Markdown export
+python tools/scene_analyzer.py              # Full text report
+python tools/scene_analyzer.py --quick      # Quick geonode summary
+python tools/scene_analyzer.py --format markdown -o report.md  # Markdown export
 ```
 
 ### 6. Geometry Node Helper
 
-Use `geonode_helper.py` for organizing nodes with frames:
+Use `tools/geonode_helper.py` for organizing nodes with frames:
 
 ```python
-from geonode_helper import GeoNodeHelper, frame_new_nodes, create_frame, FRAME_COLORS
+from tools.geonode_helper import GeoNodeHelper, frame_new_nodes, create_frame, FRAME_COLORS
 
 helper = GeoNodeHelper()
 
@@ -155,10 +160,10 @@ helper.delete_empty_frames("PlantSystem")
 
 ### 7. Node Analysis and Validation Tools
 
-Use additional functions in `geonode_helper.py` for debugging and understanding node networks:
+Use additional functions in `tools/geonode_helper.py` for debugging and understanding node networks:
 
 ```python
-from geonode_helper import (
+from tools.geonode_helper import (
     analyze_geonode_group,
     trace_node_chain,
     validate_geonode_connections,
@@ -206,6 +211,75 @@ print(f"Repositioned {result['repositioned']} nodes across {result['depth_count'
 - **trace**: Following data flow, debugging connection issues
 - **validate**: Before finalizing a node group, finding forgotten nodes
 - **reorganize**: After major edits, cleaning up chaotic layouts
+
+### 8. Texture Baker (tools/texture_baker_v2.py)
+
+**CRITICAL**: Use `tools/texture_baker_v2.py` for baking procedural materials. This tool handles the COMPLETE workflow:
+
+1. **Bake** - Create texture files from procedural material
+2. **Replace** - Remove procedural nodes and connect baked image textures
+
+**ALWAYS list materials first to get exact names:**
+
+```python
+from tools.texture_baker_v2 import TextureBaker
+
+baker = TextureBaker()
+
+# STEP 1: List all materials and objects (ALWAYS DO THIS FIRST)
+baker.list_all_materials()
+
+# STEP 2: Bake AND replace with exact names from the list
+result = baker.bake_and_replace(
+    material_name="Exact Material Name",  # From list_all_materials()
+    object_name="Exact Object Name",      # From list_all_materials()
+    resolution=2048
+)
+
+# Or bake only (don't modify material)
+result = baker.bake_only(
+    material_name="Exact Material Name",
+    object_name="Exact Object Name",
+    resolution=2048
+)
+```
+
+**Command Line Usage:**
+
+```bash
+# ALWAYS list first to get exact names
+python tools/texture_baker_v2.py --list
+
+# Bake only (creates files, doesn't modify material)
+python tools/texture_baker_v2.py -m "Material Name" -o "Object Name" -r 2048
+
+# Bake AND replace procedural nodes with image textures
+python tools/texture_baker_v2.py -m "Material Name" -o "Object Name" -r 2048 --replace
+```
+
+**Supported Bake Types:**
+
+| Type      | Description       | Color Space |
+| --------- | ----------------- | ----------- |
+| DIFFUSE   | Base color/albedo | sRGB        |
+| NORMAL    | Normal map        | Non-Color   |
+| ROUGHNESS | Surface roughness | Non-Color   |
+| METALLIC  | Metallic value    | Non-Color   |
+| AO        | Ambient occlusion | Non-Color   |
+| EMISSION  | Emission/glow     | sRGB        |
+
+**CRITICAL Requirements:**
+
+- ALWAYS use `list_all_materials()` first - never auto-detect
+- Object must have UV coordinates
+- Object must be render-enabled (`hide_render = False`)
+- Cycles render engine (automatically set)
+
+**Common Mistakes to Avoid:**
+
+1. **Don't auto-detect objects** - Multiple objects may use the same material
+2. **Baking ≠ Replacing** - Baking creates files, you must also replace nodes
+3. **Normal textures need Normal Map node** - Don't connect directly to BSDF
 
 ## 3D Modeling Best Practices
 

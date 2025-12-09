@@ -185,10 +185,10 @@ else:
 
 ## Working With the Copilot Bridge
 
-The `copilot_bridge.py` provides a Python class for direct socket communication:
+The `tools/copilot_bridge.py` provides a Python class for direct socket communication:
 
 ```python
-from copilot_bridge import BlenderCopilotBridge
+from tools.copilot_bridge import BlenderCopilotBridge
 
 bridge = BlenderCopilotBridge()
 

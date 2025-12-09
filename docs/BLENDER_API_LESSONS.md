@@ -1193,3 +1193,180 @@ Organize nodes in logical columns left-to-right:
 4. **Frame Early**: Create organizational frames before the network gets complex. Much easier than reorganizing after the fact.
 
 5. **Document Socket IDs**: Modifier sockets use identifiers like "Socket_6", "Socket_10" - keep a reference of which socket ID maps to which parameter name.
+
+---
+
+## Session: 2025-12-08 - Texture Baking Workflow
+
+### Critical Lesson: Baking vs Replacing Procedural Nodes
+
+**What happened:** User asked to "bake the potato texture". I baked textures to PNG files, but the material still used procedural nodes. The baked files existed but weren't connected to anything.
+
+**Root cause:** "Baking" in Blender only creates image files. It does NOT automatically replace the procedural node setup with image textures.
+
+**Complete workflow required:**
+
+1. **Bake** - Create texture files from procedural material
+2. **Replace** - Remove procedural nodes, add Image Texture nodes, connect to BSDF
+
+### Lesson: Always Verify Material AND Object Names
+
+**What happened:** Auto-detection picked `Icosphere.006` when user wanted `This is the object`. Multiple objects had the same material, and I baked the wrong one.
+
+**The fix:** ALWAYS run `list_all_materials()` first and use EXACT names:
+
+```python
+baker = TextureBaker()
+baker.list_all_materials()  # Shows all materials and objects
+
+# Use exact names from the list
+baker.bake_and_replace(
+    material_name="Bake this texture into maps",  # EXACT
+    object_name="This is the object",              # EXACT
+    resolution=2048
+)
+```
+
+**Prevention:** Never auto-detect. Always ask user to confirm or list explicitly.
+
+### Lesson: Safe Baking Pattern
+
+The baking process adds a temporary Image Texture node to the material (required by Blender). If not cleaned up, this corrupts the material.
+
+**Safe pattern:**
+
+```python
+# 1. Store original state
+orig_active = nodes.active
+
+# 2. Create temp node
+temp_node = nodes.new('ShaderNodeTexImage')
+temp_node.name = "_TEMP_BAKE_TARGET_"
+temp_node.image = bake_image
+nodes.active = temp_node  # MUST be active for baking
+
+# 3. Bake
+bpy.ops.object.bake(type='DIFFUSE')
+
+# 4. Save externally
+bake_image.filepath_raw = "/path/to/output.png"
+bake_image.save()
+
+# 5. CLEANUP - remove temp node
+nodes.remove(temp_node)
+if orig_active and orig_active.name in nodes:
+    nodes.active = nodes[orig_active.name]
+
+# 6. Remove temp image from Blender
+bpy.data.images.remove(bake_image)
+```
+
+### Lesson: Object Must Be Render-Enabled
+
+**Error:** `Object "X" is not enabled for rendering`
+
+**Cause:** Object has `hide_render = True`
+
+**Fix:**
+
+```python
+obj.hide_render = False  # Before baking
+# ... bake ...
+obj.hide_render = orig_hide_render  # Restore after
+```
+
+### Lesson: Diffuse Bake Settings for Color Only
+
+Default diffuse bake includes lighting. For pure color/albedo:
+
+```python
+bpy.context.scene.render.bake.use_pass_direct = False
+bpy.context.scene.render.bake.use_pass_indirect = False
+bpy.context.scene.render.bake.use_pass_color = True
+```
+
+### Lesson: Color Space Matters for Textures
+
+| Texture Type | Color Space |
+|--------------|-------------|
+| Diffuse/Albedo | sRGB |
+| Normal | Non-Color |
+| Roughness | Non-Color |
+| Metallic | Non-Color |
+| AO | Non-Color |
+| Emission | sRGB |
+
+Set on both the bake image AND the loaded texture:
+
+```python
+img.colorspace_settings.name = 'Non-Color'  # or 'sRGB'
+```
+
+### Lesson: Normal Maps Need Normal Map Node
+
+Don't connect normal texture directly to BSDF Normal input:
+
+```
+WRONG: Normal Texture → BSDF.Normal
+RIGHT: Normal Texture → Normal Map Node → BSDF.Normal
+```
+
+### Tool: texture_baker_v2.py
+
+Complete workflow tool created:
+
+```bash
+# List all materials and objects (always do this first!)
+python texture_baker_v2.py --list
+
+# Bake only (don't modify material)
+python texture_baker_v2.py -m "MaterialName" -o "ObjectName" -r 2048
+
+# Bake AND replace procedural nodes
+python tools/texture_baker_v2.py -m "MaterialName" -o "ObjectName" -r 2048 --replace
+```
+
+Python API:
+
+```python
+from tools.texture_baker_v2 import TextureBaker
+
+baker = TextureBaker()
+
+# Step 1: ALWAYS list first
+baker.list_all_materials()
+
+# Step 2: Bake only
+result = baker.bake_only(
+    material_name="Exact Material Name",
+    object_name="Exact Object Name",
+    resolution=2048
+)
+
+# Step 3: Replace procedural nodes with baked
+result = baker.replace_with_baked(
+    material_name="Exact Material Name",
+    texture_paths={
+        "DIFFUSE": "/path/to/diffuse.png",
+        "NORMAL": "/path/to/normal.png",
+        "ROUGHNESS": "/path/to/roughness.png"
+    }
+)
+
+# Or do both in one step
+result = baker.bake_and_replace(
+    material_name="Exact Material Name",
+    object_name="Exact Object Name",
+    resolution=2048
+)
+```
+
+### Quick Reference: Baking Checklist
+
+- [ ] Run `list_all_materials()` to get exact names
+- [ ] Verify object has UV coordinates
+- [ ] Verify object is render-enabled (`hide_render = False`)
+- [ ] Use CYCLES render engine
+- [ ] Set appropriate color spaces
+- [ ] Clean up temp nodes after baking
+- [ ] If replacing: add Normal Map node for normal textures

@@ -688,7 +688,7 @@ def analyze_scene(output_format: str = "text", filepath: str = None) -> str:
     Returns:
         The analysis report as a string
     """
-    from scene_analyzer import SceneAnalyzer
+    from .scene_analyzer import SceneAnalyzer
     analyzer = SceneAnalyzer()
     
     if output_format == "markdown":

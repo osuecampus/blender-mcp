@@ -6,9 +6,12 @@ Perfect for GitHub Copilot integration
 """
 
 import re
+import sys
+import os
 import json
 from typing import Dict, List, Tuple, Any, Optional
-from copilot_bridge import BlenderCopilotBridge
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tools.copilot_bridge import BlenderCopilotBridge
 
 
 class EnhancedBlenderNL:

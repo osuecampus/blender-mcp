@@ -257,12 +257,12 @@ The system uses a simple JSON-based protocol over TCP sockets:
 
 This fork includes additional tools for developers working with Blender Geometry Nodes via GitHub Copilot:
 
-### Geometry Node Helper (`geonode_helper.py`)
+### Geometry Node Helper (`tools/geonode_helper.py`)
 
 Python tools for analyzing and organizing geometry node networks:
 
 ```python
-from geonode_helper import (
+from tools.geonode_helper import (
     analyze_geonode_group,      # Dump complete node structure
     trace_node_chain,           # Follow connections upstream/downstream
     validate_geonode_connections,  # Find orphans, unconnected inputs
@@ -283,12 +283,12 @@ if validation['issues']:
         print(f"Issue: {issue['message']}")
 ```
 
-### Scene Analyzer (`scene_analyzer.py`)
+### Scene Analyzer (`tools/scene_analyzer.py`)
 
 Comprehensive scene documentation:
 
 ```python
-from scene_analyzer import quick_geonodes_summary, analyze_scene
+from tools.scene_analyzer import quick_geonodes_summary, analyze_scene
 
 # Quick overview
 print(quick_geonodes_summary())

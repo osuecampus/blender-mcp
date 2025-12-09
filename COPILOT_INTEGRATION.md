@@ -8,16 +8,16 @@ You now have a complete system that bridges GitHub Copilot with the sophisticate
 
 1. **✅ MCP Server Running**: `uvx blender-mcp`
 2. **✅ Blender Addon Active**: Connected on port 9876
-3. **✅ Copilot Bridge**: `copilot_bridge.py` - Direct Python API to all MCP tools
-4. **✅ Enhanced NL Interface**: `enhanced_nl_interface.py` - Natural language processing
-5. **✅ Original Parser**: `natural_language_blender.py` - Your original regex-based approach
+3. **✅ Copilot Bridge**: `tools/copilot_bridge.py` - Direct Python API to all MCP tools
+4. **✅ Enhanced NL Interface**: `examples/enhanced_nl_interface.py` - Natural language processing
+5. **✅ Original Parser**: `examples/natural_language_blender.py` - Your original regex-based approach
 
 ### 🚀 **How to Use with GitHub Copilot**
 
 #### Method 1: Direct API Calls (Recommended)
 
 ```python
-from copilot_bridge import BlenderCopilotBridge
+from tools.copilot_bridge import BlenderCopilotBridge
 
 # Initialize bridge
 bridge = BlenderCopilotBridge()
@@ -38,7 +38,7 @@ screenshot_path = bridge.capture_viewport_screenshot()
 #### Method 2: Natural Language Interface
 
 ```python
-from enhanced_nl_interface import EnhancedBlenderNL
+from examples.enhanced_nl_interface import EnhancedBlenderNL
 
 nl = EnhancedBlenderNL()
 
@@ -51,7 +51,7 @@ result = nl.process_request("capture a screenshot")
 #### Method 3: Convenience Functions
 
 ```python
-from copilot_bridge import create_cube_at_position, get_scene_summary, clear_scene
+from tools.copilot_bridge import create_cube_at_position, get_scene_summary, clear_scene
 
 # GitHub Copilot can easily call these
 create_cube_at_position(1, 2, 3, size=2.0)

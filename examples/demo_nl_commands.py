@@ -3,8 +3,11 @@
 Demo of Natural Language Blender Commands
 Run this to test the natural language interface
 """
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from natural_language_blender import BlenderCommandGenerator
+from examples.natural_language_blender import BlenderCommandGenerator
 
 
 def demo_commands():

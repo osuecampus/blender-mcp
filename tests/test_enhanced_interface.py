@@ -2,8 +2,11 @@
 """
 Simple test of the enhanced interface without interactive loop
 """
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from enhanced_nl_interface import EnhancedBlenderNL
+from examples.enhanced_nl_interface import EnhancedBlenderNL
 
 
 def test_commands():

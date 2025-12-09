@@ -8,7 +8,7 @@ materials, and object properties. Useful for documenting and understanding proje
 import sys
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
-from copilot_bridge import BlenderCopilotBridge
+from .copilot_bridge import BlenderCopilotBridge
 
 
 @dataclass

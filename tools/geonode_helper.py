@@ -6,7 +6,7 @@ automatic frame creation around new nodes.
 """
 
 from typing import Dict, List, Any, Optional, Tuple
-from copilot_bridge import BlenderCopilotBridge
+from .copilot_bridge import BlenderCopilotBridge
 
 
 class GeoNodeHelper:

@@ -5,10 +5,11 @@ Run this script to test the connection to Blender and see available capabilities
 """
 
 import sys
+import os
 import json
-sys.path.insert(0, '/home/nick/GIT/blender-mcp')
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from copilot_bridge import BlenderCopilotBridge
+from tools.copilot_bridge import BlenderCopilotBridge
 
 def test_connection():
     """Test the connection to Blender and display scene info"""
@@ -56,7 +57,7 @@ def test_connection():
         print("\n💡 Quick Examples:")
         print("""
 # Create a cube
-from copilot_bridge import BlenderCopilotBridge
+from tools.copilot_bridge import BlenderCopilotBridge
 bridge = BlenderCopilotBridge()
 bridge.execute_blender_code('''
 import bpy

@@ -2,8 +2,11 @@
 """
 Quick test of the natural language Blender interface
 """
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from natural_language_blender import BlenderCommandGenerator
+from examples.natural_language_blender import BlenderCommandGenerator
 
 
 def quick_test():
