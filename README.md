@@ -230,6 +230,38 @@ The system uses a simple JSON-based protocol over TCP sockets:
 
 This fork includes additional tools for developers working with Blender Geometry Nodes via GitHub Copilot:
 
+### Blender Addons (`addons/`)
+
+Standalone Blender addons that enhance your workflow:
+
+#### Quick Actions Panel
+
+A customizable sidebar panel with quick access to frequently used operators. Perfect for operations buried in sub-menus like Apply, Set Origin, Relations, and Parent.
+
+**Features:**
+- Custom labels for any operator
+- Operator argument support (e.g., specific origin types)
+- Category grouping
+- Edit mode for adding/removing/reordering actions
+- Presets for common workflows
+
+**Installation:** See [addons/README.md](addons/README.md) for detailed instructions.
+
+```python
+# Or load via BlenderMCP bridge:
+from tools import BlenderCopilotBridge
+bridge = BlenderCopilotBridge()
+bridge.execute_blender_code('''
+import bpy, sys, importlib.util
+spec = importlib.util.spec_from_file_location("quick_actions_panel", 
+    "/path/to/addons/quick_actions_panel.py")
+module = importlib.util.module_from_spec(spec)
+sys.modules["quick_actions_panel"] = module
+spec.loader.exec_module(module)
+module.register()
+''')
+```
+
 ### Geometry Node Helper (`tools/geonode_helper.py`)
 
 Python tools for analyzing and organizing geometry node networks:

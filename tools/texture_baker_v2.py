@@ -35,6 +35,9 @@ import os
 import json
 from typing import Optional, List, Dict, Any
 
+# Define script directory for output paths
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 try:
     from .copilot_bridge import BlenderCopilotBridge
 except ImportError:
