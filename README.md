@@ -1,58 +1,30 @@
 
-# BlenderMCP - Blender Model Context Protocol Integration
+# BlenderMCP Fork - VS Code + GitHub Copilot Integration
 
-BlenderMCP connects Blender to Claude AI through the Model Context Protocol (MCP), allowing Claude to directly interact with and control Blender. This integration enables prompt assisted 3D modeling, scene creation, and manipulation.
+> **⚠️ This is a fork** of [ahujasid/blender-mcp](https://github.com/ahujasid/blender-mcp), taking a different development direction.
+>
+> - **Original project**: Focused on Claude Desktop / Claude Code integration
+> - **This fork**: Focused on **VS Code + GitHub Copilot** workflow with extended Geometry Nodes tooling
+>
+> We are not affiliated with the original developers. For the original Claude-focused project, visit the upstream repository.
 
-**We have no official website. Any website you see online is unofficial and has no affiliation with this project. Use them at your own risk.**
+---
 
-[Full tutorial](https://www.youtube.com/watch?v=lCyQ717DuzQ)
+BlenderMCP connects Blender to AI assistants through the Model Context Protocol (MCP), allowing AI to directly interact with and control Blender. This fork is optimized for VS Code with GitHub Copilot, enabling AI-assisted 3D modeling, scene creation, and Geometry Nodes development.
 
-### Join the Community
+## Fork Features
 
-Give feedback, get inspired, and build on top of the MCP: [Discord](https://discord.gg/z5apgR8TFU)
+This fork adds extensive tooling for **Geometry Nodes development** via GitHub Copilot:
 
-### Supporters
+- **15+ Geometry Node tools**: `inspect_node_type`, `create_geonode_node`, `create_geonode_link`, `set_geonode_parameter`, etc.
+- **Scene analysis**: Comprehensive node tree inspection and validation
+- **Developer tools**: `tools/geonode_helper.py`, `tools/scene_analyzer.py`, `tools/texture_baker_v2.py`
+- **Offline Blender documentation**: Local Python API reference (avoids CAPTCHA-gated online docs)
+- **Copilot workflow**: Custom instructions in `copilot-instructions.md`
 
-<div align="center" markdown="1">
-   <sup>Special thanks to:</sup>
-   <br>
-   <br>
-   <a href="https://www.warp.dev/blender-mcp">
-      <img alt="Warp sponsorship" width="400" src="https://github.com/user-attachments/assets/c21102f7-bab9-4344-a731-0cf6b341cab2">
-   </a>
+---
 
-### [Warp, the intelligent terminal for developers](https://www.warp.dev/blender-mcp)
-
-[Available for MacOS, Linux, & Windows](https://www.warp.dev/blender-mcp)<br>
-
-</div>
-<hr>
-
-**Other supporters:**
-
-[CodeRabbit](https://www.coderabbit.ai/)
-
-[Satish Goda](https://github.com/satishgoda)
-
-**All supporters:**
-
-[Support this project](https://github.com/sponsors/ahujasid)
-
-## Release notes (1.4.0)
-- Added Hunyuan3D support
-
-### Previously added features
-
-- View screenshots for Blender viewport to better understand the scene
-- Search and download Sketchfab models
-- Support for Poly Haven assets through their API
-- Support to generate 3D models using Hyper3D Rodin
-- For newcomers, you can go straight to Installation. For existing users, see the points below
-- Download the latest addon.py file and replace the older one, then add it to Blender
-- Delete the MCP server from Claude and add it back again, and you should be good to go!
-- Telemetry for tools executed (completely anonymous)
-
-## Features
+## Upstream Features (from original project)
 
 - **Two-way communication**: Connect Claude AI to Blender through a socket-based server
 - **Object manipulation**: Create, modify, and delete 3D objects in Blender
@@ -307,6 +279,9 @@ analyze_scene(output_format="markdown", filepath="scene_report.md")
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## Disclaimer
+## Credits
 
-This is a third-party integration and not made by Blender. Made by [Siddharth](https://x.com/sidahuj)
+- **Original project**: [ahujasid/blender-mcp](https://github.com/ahujasid/blender-mcp) by [Siddharth](https://x.com/sidahuj)
+- **This fork**: Maintained for VS Code + GitHub Copilot workflow
+
+This is a third-party integration and not made by Blender.
