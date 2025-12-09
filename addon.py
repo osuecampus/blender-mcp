@@ -206,12 +206,36 @@ class BlenderMCPServer:
         handlers = {
             "get_scene_info": self.get_scene_info,
             "get_object_info": self.get_object_info,
+            "get_node_details": self.get_node_details,
+            "get_node_links": self.get_node_links,
+            "get_node_connections": self.get_node_connections,
+            "get_geometry_stats": self.get_geometry_stats,
+            "trace_node_dataflow": self.trace_node_dataflow,
+            "set_geonode_parameter": self.set_geonode_parameter,
+            "find_orphan_nodes": self.find_orphan_nodes,
+            "get_modifier_details": self.get_modifier_details,
+            "list_node_trees": self.list_node_trees,
+            "list_materials": self.list_materials,
+            "get_material_nodes": self.get_material_nodes,
+            "get_selection": self.get_selection,
+            "set_selection": self.set_selection,
+            "batch_rename": self.batch_rename,
             "get_viewport_screenshot": self.get_viewport_screenshot,
             "execute_code": self.execute_code,
             "get_polyhaven_status": self.get_polyhaven_status,
             "get_hyper3d_status": self.get_hyper3d_status,
             "get_sketchfab_status": self.get_sketchfab_status,
             "get_hunyuan3d_status": self.get_hunyuan3d_status,
+            # Geometry nodes building tools
+            "inspect_node_type": self.inspect_node_type,
+            "create_geonode_node": self.create_geonode_node,
+            "create_geonode_link": self.create_geonode_link,
+            "delete_geonode_node": self.delete_geonode_node,
+            "delete_geonode_link": self.delete_geonode_link,
+            "set_node_socket_default": self.set_node_socket_default,
+            "validate_geonode_network": self.validate_geonode_network,
+            "get_node_tree_interface": self.get_node_tree_interface,
+            "insert_node_between": self.insert_node_between,
         }
 
         # Add Polyhaven handlers only if enabled
@@ -358,6 +382,1730 @@ class BlenderMCPServer:
             }
 
         return obj_info
+
+    def get_node_details(self, node_tree_name, node_name=None):
+        """
+        Get detailed information about nodes in a Blender node tree.
+        
+        Parameters:
+        - node_tree_name: Name of the node tree (e.g., "Geometry Nodes")
+        - node_name: Optional specific node name. If None, returns all nodes.
+        
+        Returns detailed node information including type, sockets, and node-specific properties.
+        """
+        # Find the node tree
+        node_tree = bpy.data.node_groups.get(node_tree_name)
+        if not node_tree:
+            raise ValueError(f"Node tree not found: {node_tree_name}. Available: {[ng.name for ng in bpy.data.node_groups]}")
+        
+        def get_socket_value(socket):
+            """Safely extract socket default value and ensure JSON serializable"""
+            try:
+                if hasattr(socket, 'default_value'):
+                    val = socket.default_value
+                    # Skip None values
+                    if val is None:
+                        return None
+                    # Handle Blender ID types (Object, Material, etc.) - just return name
+                    if hasattr(val, 'name') and hasattr(val, 'bl_rna'):
+                        return f"<{type(val).__name__}: {val.name}>"
+                    # Handle vectors, colors, etc.
+                    if hasattr(val, '__iter__') and not isinstance(val, str):
+                        try:
+                            return [float(v) if isinstance(v, (int, float)) else str(v) for v in val]
+                        except (TypeError, ValueError):
+                            return str(val)
+                    # Handle simple types
+                    if isinstance(val, (bool, int, float, str)):
+                        return val
+                    # Fallback - convert to string
+                    return str(val)
+            except (AttributeError, TypeError, RuntimeError):
+                pass
+            return None
+        
+        def get_node_specific_props(node):
+            """Extract node-type-specific properties"""
+            props = {}
+            
+            # Common properties that many nodes have
+            prop_names = [
+                'operation',      # Math, Compare, Boolean Math, etc.
+                'data_type',      # Various nodes
+                'domain',         # Attribute nodes
+                'mode',           # Various nodes
+                'blend_type',     # Mix nodes
+                'clamp',          # Math nodes
+                'use_clamp',      # Math nodes
+                'mapping',        # Mapping nodes
+                'distribution',   # Random nodes
+                'interpolation_type',  # Interpolation nodes
+            ]
+            
+            for prop in prop_names:
+                if hasattr(node, prop):
+                    try:
+                        val = getattr(node, prop)
+                        # Convert enum values to strings
+                        if isinstance(val, str) or isinstance(val, bool) or isinstance(val, (int, float)):
+                            props[prop] = val
+                        else:
+                            props[prop] = str(val)
+                    except (AttributeError, TypeError):
+                        pass
+            
+            # Handle Group nodes specially - get the nested node tree name
+            if node.bl_idname == 'GeometryNodeGroup' or node.bl_idname == 'ShaderNodeGroup':
+                if hasattr(node, 'node_tree') and node.node_tree:
+                    props['node_tree'] = node.node_tree.name
+            
+            return props
+        
+        def extract_node_info(node):
+            """Extract all relevant information from a node"""
+            node_info = {
+                "name": node.name,
+                "bl_idname": node.bl_idname,
+                "label": node.label if node.label else None,
+                "location": [round(node.location.x, 2), round(node.location.y, 2)],
+                "mute": node.mute,
+                "inputs": [],
+                "outputs": [],
+                "properties": get_node_specific_props(node),
+            }
+            
+            # Extract input sockets
+            for inp in node.inputs:
+                socket_info = {
+                    "name": inp.name,
+                    "type": inp.bl_idname if hasattr(inp, 'bl_idname') else type(inp).__name__,
+                    "is_linked": inp.is_linked,
+                }
+                # Only include default_value if socket is not linked
+                if not inp.is_linked:
+                    val = get_socket_value(inp)
+                    if val is not None:
+                        socket_info["default_value"] = val
+                node_info["inputs"].append(socket_info)
+            
+            # Extract output sockets
+            for out in node.outputs:
+                socket_info = {
+                    "name": out.name,
+                    "type": out.bl_idname if hasattr(out, 'bl_idname') else type(out).__name__,
+                    "is_linked": out.is_linked,
+                }
+                node_info["outputs"].append(socket_info)
+            
+            return node_info
+        
+        # If specific node requested, return just that node
+        if node_name:
+            node = node_tree.nodes.get(node_name)
+            if not node:
+                raise ValueError(f"Node not found: {node_name}. Available: {[n.name for n in node_tree.nodes]}")
+            return extract_node_info(node)
+        
+        # Otherwise return all nodes
+        result = {
+            "node_tree_name": node_tree.name,
+            "node_tree_type": node_tree.bl_idname,
+            "node_count": len(node_tree.nodes),
+            "link_count": len(node_tree.links),
+            "nodes": [extract_node_info(n) for n in node_tree.nodes]
+        }
+        
+        return result
+
+    def get_node_links(self, node_tree_name):
+        """
+        Get all connections between nodes in a node tree.
+        
+        Parameters:
+        - node_tree_name: Name of the node tree (e.g., "Geometry Nodes")
+        
+        Returns list of links with from/to node and socket information.
+        """
+        # Find the node tree
+        node_tree = bpy.data.node_groups.get(node_tree_name)
+        if not node_tree:
+            raise ValueError(f"Node tree not found: {node_tree_name}. Available: {[ng.name for ng in bpy.data.node_groups]}")
+        
+        def get_socket_index(socket, socket_collection):
+            """Get the index of a socket in its collection"""
+            for i, s in enumerate(socket_collection):
+                if s == socket:
+                    return i
+            return -1
+        
+        links = []
+        for link in node_tree.links:
+            link_info = {
+                "from_node": link.from_node.name,
+                "from_socket": {
+                    "name": link.from_socket.name,
+                    "index": get_socket_index(link.from_socket, link.from_node.outputs),
+                    "type": link.from_socket.bl_idname if hasattr(link.from_socket, 'bl_idname') else type(link.from_socket).__name__,
+                },
+                "to_node": link.to_node.name,
+                "to_socket": {
+                    "name": link.to_socket.name,
+                    "index": get_socket_index(link.to_socket, link.to_node.inputs),
+                    "type": link.to_socket.bl_idname if hasattr(link.to_socket, 'bl_idname') else type(link.to_socket).__name__,
+                },
+            }
+            links.append(link_info)
+        
+        return {
+            "node_tree_name": node_tree.name,
+            "link_count": len(links),
+            "links": links
+        }
+
+    def get_node_connections(self, node_tree_name, node_name):
+        """
+        Get all connections to and from a specific node.
+        
+        Parameters:
+        - node_tree_name: Name of the node tree
+        - node_name: Name of the specific node to inspect
+        
+        Returns incoming, outgoing, and unconnected sockets.
+        """
+        node_tree = bpy.data.node_groups.get(node_tree_name)
+        if not node_tree:
+            raise ValueError(f"Node tree not found: {node_tree_name}. Available: {[ng.name for ng in bpy.data.node_groups]}")
+        
+        node = node_tree.nodes.get(node_name)
+        if not node:
+            raise ValueError(f"Node not found: {node_name}. Available: {[n.name for n in node_tree.nodes]}")
+        
+        incoming = []
+        outgoing = []
+        
+        for link in node_tree.links:
+            if link.to_node == node:
+                incoming.append({
+                    "from_node": link.from_node.name,
+                    "from_socket": link.from_socket.name,
+                    "to_socket": link.to_socket.name,
+                    "to_socket_index": list(node.inputs).index(link.to_socket),
+                })
+            if link.from_node == node:
+                outgoing.append({
+                    "to_node": link.to_node.name,
+                    "to_socket": link.to_socket.name,
+                    "from_socket": link.from_socket.name,
+                    "from_socket_index": list(node.outputs).index(link.from_socket),
+                })
+        
+        # Find unconnected sockets
+        unconnected_inputs = []
+        for i, inp in enumerate(node.inputs):
+            if not inp.is_linked:
+                socket_info = {
+                    "index": i,
+                    "name": inp.name,
+                    "type": inp.bl_idname if hasattr(inp, 'bl_idname') else type(inp).__name__,
+                }
+                # Add default value if available
+                if hasattr(inp, 'default_value'):
+                    try:
+                        val = inp.default_value
+                        if hasattr(val, '__iter__') and not isinstance(val, str):
+                            socket_info["default_value"] = list(val)
+                        else:
+                            socket_info["default_value"] = val
+                    except (TypeError, RuntimeError):
+                        pass
+                unconnected_inputs.append(socket_info)
+        
+        unconnected_outputs = []
+        for i, out in enumerate(node.outputs):
+            if not out.is_linked:
+                unconnected_outputs.append({
+                    "index": i,
+                    "name": out.name,
+                    "type": out.bl_idname if hasattr(out, 'bl_idname') else type(out).__name__,
+                })
+        
+        return {
+            "node_tree_name": node_tree.name,
+            "node_name": node.name,
+            "node_type": node.bl_idname,
+            "incoming": incoming,
+            "outgoing": outgoing,
+            "unconnected_inputs": unconnected_inputs,
+            "unconnected_outputs": unconnected_outputs,
+            "incoming_count": len(incoming),
+            "outgoing_count": len(outgoing),
+        }
+
+    def get_geometry_stats(self, object_name, apply_modifiers=True):
+        """
+        Get geometry statistics for an object.
+        
+        Parameters:
+        - object_name: Name of the object
+        - apply_modifiers: If True, evaluate after modifiers
+        
+        Returns vertex/edge/face counts, bounding box, dimensions.
+        """
+        obj = bpy.data.objects.get(object_name)
+        if not obj:
+            raise ValueError(f"Object not found: {object_name}. Available: {[o.name for o in bpy.data.objects]}")
+        
+        if obj.type != 'MESH':
+            # Try to get evaluated geometry for non-mesh objects
+            if apply_modifiers:
+                dg = bpy.context.evaluated_depsgraph_get()
+                obj_eval = obj.evaluated_get(dg)
+                try:
+                    mesh = obj_eval.to_mesh()
+                except RuntimeError:
+                    return {
+                        "object_name": obj.name,
+                        "object_type": obj.type,
+                        "error": f"Cannot get mesh data for object type: {obj.type}"
+                    }
+            else:
+                return {
+                    "object_name": obj.name,
+                    "object_type": obj.type,
+                    "error": f"Object is not a mesh: {obj.type}"
+                }
+        else:
+            if apply_modifiers:
+                dg = bpy.context.evaluated_depsgraph_get()
+                obj_eval = obj.evaluated_get(dg)
+                mesh = obj_eval.to_mesh()
+            else:
+                mesh = obj.data
+                obj_eval = None
+        
+        # Get mesh statistics
+        stats = {
+            "object_name": obj.name,
+            "object_type": obj.type,
+            "modifiers_applied": apply_modifiers,
+            "vertex_count": len(mesh.vertices),
+            "edge_count": len(mesh.edges),
+            "face_count": len(mesh.polygons),
+        }
+        
+        # Calculate bounding box in world space
+        if len(mesh.vertices) > 0:
+            # Get world matrix
+            world_matrix = obj.matrix_world
+            
+            # Transform all vertices to world space
+            world_verts = [world_matrix @ v.co for v in mesh.vertices]
+            
+            min_x = min(v.x for v in world_verts)
+            max_x = max(v.x for v in world_verts)
+            min_y = min(v.y for v in world_verts)
+            max_y = max(v.y for v in world_verts)
+            min_z = min(v.z for v in world_verts)
+            max_z = max(v.z for v in world_verts)
+            
+            stats["bounding_box"] = {
+                "min": [round(min_x, 4), round(min_y, 4), round(min_z, 4)],
+                "max": [round(max_x, 4), round(max_y, 4), round(max_z, 4)],
+            }
+            stats["dimensions"] = {
+                "x": round(max_x - min_x, 4),
+                "y": round(max_y - min_y, 4),
+                "z": round(max_z - min_z, 4),
+            }
+            stats["center"] = {
+                "x": round((min_x + max_x) / 2, 4),
+                "y": round((min_y + max_y) / 2, 4),
+                "z": round((min_z + max_z) / 2, 4),
+            }
+        else:
+            stats["bounding_box"] = None
+            stats["dimensions"] = {"x": 0, "y": 0, "z": 0}
+            stats["center"] = {"x": 0, "y": 0, "z": 0}
+        
+        # Clean up temporary mesh
+        if apply_modifiers and obj_eval:
+            obj_eval.to_mesh_clear()
+        
+        return stats
+
+    def trace_node_dataflow(self, node_tree_name, from_node, from_socket, to_node, to_socket):
+        """
+        Trace data flow path between two sockets in a node tree.
+        
+        Parameters:
+        - node_tree_name: Name of the node tree
+        - from_node: Starting node name
+        - from_socket: Starting socket name (output)
+        - to_node: Ending node name  
+        - to_socket: Ending socket name (input)
+        
+        Returns all paths found between the sockets.
+        """
+        node_tree = bpy.data.node_groups.get(node_tree_name)
+        if not node_tree:
+            raise ValueError(f"Node tree not found: {node_tree_name}")
+        
+        start_node = node_tree.nodes.get(from_node)
+        end_node = node_tree.nodes.get(to_node)
+        if not start_node:
+            raise ValueError(f"From node not found: {from_node}")
+        if not end_node:
+            raise ValueError(f"To node not found: {to_node}")
+        
+        # Build adjacency map: node -> list of (output_socket, target_node, target_socket)
+        adjacency = {}
+        for link in node_tree.links:
+            node_name = link.from_node.name
+            if node_name not in adjacency:
+                adjacency[node_name] = []
+            adjacency[node_name].append({
+                "from_socket": link.from_socket.name,
+                "to_node": link.to_node.name,
+                "to_socket": link.to_socket.name,
+            })
+        
+        # Check for direct connection first
+        direct = False
+        for link in node_tree.links:
+            if (link.from_node.name == from_node and 
+                link.from_socket.name == from_socket and
+                link.to_node.name == to_node and 
+                link.to_socket.name == to_socket):
+                direct = True
+                break
+        
+        # BFS to find all paths
+        paths = []
+        queue = [[(from_node, from_socket)]]  # Each item is a path
+        max_paths = 10  # Limit to prevent explosion
+        max_depth = 50  # Prevent infinite loops
+        
+        while queue and len(paths) < max_paths:
+            path = queue.pop(0)
+            if len(path) > max_depth:
+                continue
+            
+            current_node, current_socket = path[-1]
+            
+            # Check if we've reached the destination
+            if current_node == to_node:
+                # Verify socket matches if this is a direct connection
+                if len(path) == 1:
+                    # Need to check if there's a direct link to target socket
+                    for adj in adjacency.get(current_node, []):
+                        if (adj["from_socket"] == current_socket and 
+                            adj["to_node"] == to_node and 
+                            adj["to_socket"] == to_socket):
+                            paths.append(path + [(to_node, to_socket)])
+                else:
+                    paths.append(path)
+                continue
+            
+            # Explore neighbors from current socket
+            for adj in adjacency.get(current_node, []):
+                if adj["from_socket"] == current_socket:
+                    next_node = adj["to_node"]
+                    next_socket = adj["to_socket"]
+                    
+                    # Avoid cycles
+                    visited_nodes = [p[0] for p in path]
+                    if next_node not in visited_nodes or next_node == to_node:
+                        # Find output sockets of next_node to continue tracing
+                        new_path = path + [(next_node, next_socket)]
+                        
+                        if next_node == to_node and next_socket == to_socket:
+                            paths.append(new_path)
+                        else:
+                            # Continue from each output of this node
+                            for out in node_tree.nodes[next_node].outputs:
+                                if out.is_linked:
+                                    queue.append(new_path[:-1] + [(next_node, out.name)])
+        
+        # Format paths for output
+        formatted_paths = []
+        for path in paths:
+            formatted_paths.append([
+                {"node": node, "socket": socket} 
+                for node, socket in path
+            ])
+        
+        return {
+            "node_tree_name": node_tree.name,
+            "from": {"node": from_node, "socket": from_socket},
+            "to": {"node": to_node, "socket": to_socket},
+            "direct_connection": direct,
+            "path_count": len(formatted_paths),
+            "paths": formatted_paths,
+        }
+
+    def set_geonode_parameter(self, object_name, modifier_name, parameter_name, value):
+        """
+        Set a geometry nodes modifier parameter with automatic depsgraph refresh.
+        
+        Uses the viewport toggle workaround to force re-evaluation.
+        
+        Parameters:
+        - object_name: Name of the object
+        - modifier_name: Name of the geometry nodes modifier  
+        - parameter_name: Socket identifier or display name
+        - value: New value to set
+        """
+        obj = bpy.data.objects.get(object_name)
+        if not obj:
+            raise ValueError(f"Object not found: {object_name}")
+        
+        mod = obj.modifiers.get(modifier_name)
+        if not mod:
+            raise ValueError(f"Modifier not found: {modifier_name}")
+        
+        if mod.type != 'NODES':
+            raise ValueError(f"Modifier is not a geometry nodes modifier: {mod.type}")
+        
+        if not mod.node_group:
+            raise ValueError(f"Modifier has no node group assigned")
+        
+        # Find the parameter - could be by identifier (Socket_1) or by name (Trunk Count)
+        param_id = None
+        param_info = None
+        
+        if hasattr(mod.node_group, 'interface'):
+            for item in mod.node_group.interface.items_tree:
+                if item.item_type == 'SOCKET' and item.in_out == 'INPUT':
+                    if item.identifier == parameter_name or item.name == parameter_name:
+                        param_id = item.identifier
+                        param_info = {
+                            "name": item.name,
+                            "identifier": item.identifier,
+                            "socket_type": item.socket_type,
+                        }
+                        break
+        
+        if not param_id:
+            # List available parameters
+            available = []
+            if hasattr(mod.node_group, 'interface'):
+                for item in mod.node_group.interface.items_tree:
+                    if item.item_type == 'SOCKET' and item.in_out == 'INPUT':
+                        available.append(f"{item.name} ({item.identifier})")
+            raise ValueError(f"Parameter not found: {parameter_name}. Available: {available}")
+        
+        # Get old value
+        try:
+            old_value = mod[param_id]
+            if hasattr(old_value, '__iter__') and not isinstance(old_value, str):
+                old_value = list(old_value)
+        except KeyError:
+            old_value = None
+        
+        # Set new value
+        mod[param_id] = value
+        
+        # Force depsgraph refresh using viewport toggle workaround
+        mod.show_viewport = False
+        mod.show_viewport = True
+        bpy.context.view_layer.update()
+        
+        # Verify new value
+        try:
+            new_value = mod[param_id]
+            if hasattr(new_value, '__iter__') and not isinstance(new_value, str):
+                new_value = list(new_value)
+        except KeyError:
+            new_value = value
+        
+        return {
+            "success": True,
+            "object_name": obj.name,
+            "modifier_name": mod.name,
+            "parameter": param_info,
+            "old_value": old_value,
+            "new_value": new_value,
+            "geometry_updated": True,
+        }
+
+    def find_orphan_nodes(self, node_tree_name):
+        """
+        Find nodes and sockets with no connections.
+        
+        Parameters:
+        - node_tree_name: Name of the node tree
+        
+        Returns orphan nodes and partially connected nodes.
+        """
+        node_tree = bpy.data.node_groups.get(node_tree_name)
+        if not node_tree:
+            raise ValueError(f"Node tree not found: {node_tree_name}")
+        
+        # Skip these node types as they're often intentionally unconnected
+        interface_types = {'NodeGroupInput', 'NodeGroupOutput', 'NodeFrame', 'NodeReroute'}
+        
+        orphan_nodes = []
+        partial_nodes = []
+        unconnected_required = []
+        
+        for node in node_tree.nodes:
+            if node.bl_idname in interface_types:
+                continue
+            
+            # Count connections
+            connected_inputs = sum(1 for inp in node.inputs if inp.is_linked)
+            connected_outputs = sum(1 for out in node.outputs if out.is_linked)
+            total_inputs = len(node.inputs)
+            total_outputs = len(node.outputs)
+            
+            # Completely orphaned (no connections at all)
+            if connected_inputs == 0 and connected_outputs == 0:
+                orphan_nodes.append({
+                    "name": node.name,
+                    "type": node.bl_idname,
+                    "label": node.label if node.label else None,
+                    "location": [round(node.location.x, 2), round(node.location.y, 2)],
+                    "input_count": total_inputs,
+                    "output_count": total_outputs,
+                })
+            # Partially connected
+            elif connected_inputs < total_inputs or connected_outputs < total_outputs:
+                unconnected_inputs = []
+                unconnected_outputs = []
+                
+                for i, inp in enumerate(node.inputs):
+                    if not inp.is_linked and inp.enabled:
+                        unconnected_inputs.append({
+                            "index": i,
+                            "name": inp.name,
+                            "type": inp.bl_idname if hasattr(inp, 'bl_idname') else "",
+                        })
+                
+                for i, out in enumerate(node.outputs):
+                    if not out.is_linked and out.enabled:
+                        unconnected_outputs.append({
+                            "index": i,
+                            "name": out.name,
+                            "type": out.bl_idname if hasattr(out, 'bl_idname') else "",
+                        })
+                
+                if unconnected_inputs or unconnected_outputs:
+                    partial_nodes.append({
+                        "name": node.name,
+                        "type": node.bl_idname,
+                        "unconnected_inputs": unconnected_inputs,
+                        "unconnected_outputs": unconnected_outputs,
+                    })
+                
+                # Check for commonly required inputs
+                required_input_names = {"Geometry", "Mesh", "Curve", "Points", "Instances"}
+                for inp in node.inputs:
+                    if inp.name in required_input_names and not inp.is_linked:
+                        unconnected_required.append({
+                            "node": node.name,
+                            "socket": inp.name,
+                            "type": inp.bl_idname if hasattr(inp, 'bl_idname') else "",
+                        })
+        
+        return {
+            "node_tree_name": node_tree.name,
+            "total_nodes": len(node_tree.nodes),
+            "orphan_nodes": orphan_nodes,
+            "orphan_count": len(orphan_nodes),
+            "partial_nodes": partial_nodes,
+            "partial_count": len(partial_nodes),
+            "unconnected_required": unconnected_required,
+        }
+
+    # ============================================
+    # Geometry Nodes Building Tools
+    # ============================================
+
+    def inspect_node_type(self, node_type):
+        """
+        Inspect a Blender node type to discover its sockets and properties.
+        Creates a temporary node to examine its structure.
+        """
+        # Create a temporary node group to inspect the node
+        temp_ng = bpy.data.node_groups.new("_TempInspect", "GeometryNodeTree")
+        
+        try:
+            # Try to create the node
+            try:
+                node = temp_ng.nodes.new(node_type)
+            except RuntimeError as e:
+                raise ValueError(f"Invalid node type: {node_type}. Error: {str(e)}")
+            
+            # Gather input socket info
+            inputs = []
+            for i, inp in enumerate(node.inputs):
+                inp_info = {
+                    "index": i,
+                    "name": inp.name,
+                    "type": inp.bl_idname if hasattr(inp, 'bl_idname') else type(inp).__name__,
+                    "is_linked": inp.is_linked,
+                }
+                # Try to get default value
+                if hasattr(inp, 'default_value'):
+                    try:
+                        val = inp.default_value
+                        if hasattr(val, '__iter__') and not isinstance(val, str):
+                            inp_info["default_value"] = list(val)
+                        else:
+                            inp_info["default_value"] = val
+                    except:
+                        pass
+                inputs.append(inp_info)
+            
+            # Gather output socket info
+            outputs = []
+            for i, out in enumerate(node.outputs):
+                outputs.append({
+                    "index": i,
+                    "name": out.name,
+                    "type": out.bl_idname if hasattr(out, 'bl_idname') else type(out).__name__,
+                })
+            
+            # Gather configurable properties
+            properties = {}
+            # Common properties to check
+            property_names = ['operation', 'mode', 'data_type', 'domain', 'distribute_method',
+                              'blend_type', 'clamp', 'use_clamp', 'interpolation_type']
+            for prop_name in property_names:
+                if hasattr(node, prop_name):
+                    try:
+                        val = getattr(node, prop_name)
+                        properties[prop_name] = str(val) if not isinstance(val, (bool, int, float, str)) else val
+                    except:
+                        pass
+            
+            return {
+                "node_type": node_type,
+                "bl_label": node.bl_label if hasattr(node, 'bl_label') else node_type,
+                "bl_idname": node.bl_idname,
+                "inputs": inputs,
+                "outputs": outputs,
+                "properties": properties,
+            }
+        finally:
+            # Clean up temporary node group
+            bpy.data.node_groups.remove(temp_ng)
+
+    def create_geonode_node(self, node_tree_name, node_type, name=None, location=None, properties=None, defaults=None):
+        """
+        Create a new node in a geometry node tree.
+        """
+        node_tree = bpy.data.node_groups.get(node_tree_name)
+        if not node_tree:
+            raise ValueError(f"Node tree not found: {node_tree_name}")
+        
+        # Create the node
+        try:
+            node = node_tree.nodes.new(node_type)
+        except RuntimeError as e:
+            raise ValueError(f"Failed to create node of type '{node_type}': {str(e)}")
+        
+        # Set name if provided
+        if name:
+            node.name = name
+        
+        # Set location if provided
+        if location and len(location) >= 2:
+            node.location = (location[0], location[1])
+        
+        # Set properties if provided
+        if properties:
+            for prop_name, prop_value in properties.items():
+                if hasattr(node, prop_name):
+                    try:
+                        setattr(node, prop_name, prop_value)
+                    except Exception as e:
+                        print(f"Warning: Could not set property {prop_name}: {e}")
+        
+        # Set socket defaults if provided
+        if defaults:
+            for socket_id, value in defaults.items():
+                # Handle both index and name
+                socket = None
+                if isinstance(socket_id, int):
+                    if socket_id < len(node.inputs):
+                        socket = node.inputs[socket_id]
+                else:
+                    socket = node.inputs.get(socket_id)
+                
+                if socket and hasattr(socket, 'default_value'):
+                    try:
+                        socket.default_value = value
+                    except Exception as e:
+                        print(f"Warning: Could not set default for {socket_id}: {e}")
+        
+        # Return node info
+        inputs = [{"index": i, "name": inp.name} for i, inp in enumerate(node.inputs)]
+        outputs = [{"index": i, "name": out.name} for i, out in enumerate(node.outputs)]
+        
+        return {
+            "success": True,
+            "name": node.name,
+            "type": node.bl_idname,
+            "location": [node.location.x, node.location.y],
+            "inputs": inputs,
+            "outputs": outputs,
+        }
+
+    def create_geonode_link(self, node_tree_name, from_node, from_socket, to_node, to_socket):
+        """
+        Create a link between two nodes.
+        """
+        node_tree = bpy.data.node_groups.get(node_tree_name)
+        if not node_tree:
+            raise ValueError(f"Node tree not found: {node_tree_name}")
+        
+        # Find source node
+        src_node = node_tree.nodes.get(from_node)
+        if not src_node:
+            raise ValueError(f"Source node not found: {from_node}. Available: {[n.name for n in node_tree.nodes]}")
+        
+        # Find destination node
+        dst_node = node_tree.nodes.get(to_node)
+        if not dst_node:
+            raise ValueError(f"Destination node not found: {to_node}. Available: {[n.name for n in node_tree.nodes]}")
+        
+        # Find source socket (output)
+        src_socket = None
+        if isinstance(from_socket, int):
+            if from_socket < len(src_node.outputs):
+                src_socket = src_node.outputs[from_socket]
+            else:
+                raise ValueError(f"Output socket index {from_socket} out of range. Node has {len(src_node.outputs)} outputs.")
+        else:
+            src_socket = src_node.outputs.get(from_socket)
+            if not src_socket:
+                available = [f"[{i}] {o.name}" for i, o in enumerate(src_node.outputs)]
+                raise ValueError(f"Output socket not found: {from_socket}. Available: {available}")
+        
+        # Find destination socket (input)
+        dst_socket = None
+        if isinstance(to_socket, int):
+            if to_socket < len(dst_node.inputs):
+                dst_socket = dst_node.inputs[to_socket]
+            else:
+                raise ValueError(f"Input socket index {to_socket} out of range. Node has {len(dst_node.inputs)} inputs.")
+        else:
+            dst_socket = dst_node.inputs.get(to_socket)
+            if not dst_socket:
+                available = [f"[{i}] {inp.name}" for i, inp in enumerate(dst_node.inputs)]
+                raise ValueError(f"Input socket not found: {to_socket}. Available: {available}")
+        
+        # Create the link
+        link = node_tree.links.new(src_socket, dst_socket)
+        
+        return {
+            "success": True,
+            "from_node": src_node.name,
+            "from_socket": src_socket.name,
+            "from_socket_index": list(src_node.outputs).index(src_socket),
+            "to_node": dst_node.name,
+            "to_socket": dst_socket.name,
+            "to_socket_index": list(dst_node.inputs).index(dst_socket),
+        }
+
+    def delete_geonode_node(self, node_tree_name, node_name):
+        """
+        Delete a node from a geometry node tree.
+        """
+        node_tree = bpy.data.node_groups.get(node_tree_name)
+        if not node_tree:
+            raise ValueError(f"Node tree not found: {node_tree_name}")
+        
+        node = node_tree.nodes.get(node_name)
+        if not node:
+            raise ValueError(f"Node not found: {node_name}. Available: {[n.name for n in node_tree.nodes]}")
+        
+        # Count links that will be removed
+        removed_links = 0
+        for inp in node.inputs:
+            removed_links += len(inp.links)
+        for out in node.outputs:
+            removed_links += len(out.links)
+        
+        # Remove the node (this also removes connected links)
+        node_tree.nodes.remove(node)
+        
+        return {
+            "success": True,
+            "removed_node": node_name,
+            "removed_links": removed_links,
+        }
+
+    def delete_geonode_link(self, node_tree_name, from_node, from_socket, to_node, to_socket):
+        """
+        Delete a specific link between two nodes.
+        """
+        node_tree = bpy.data.node_groups.get(node_tree_name)
+        if not node_tree:
+            raise ValueError(f"Node tree not found: {node_tree_name}")
+        
+        # Find the source node and socket
+        src_node = node_tree.nodes.get(from_node)
+        if not src_node:
+            raise ValueError(f"Source node not found: {from_node}")
+        
+        src_socket = None
+        if isinstance(from_socket, int):
+            if from_socket < len(src_node.outputs):
+                src_socket = src_node.outputs[from_socket]
+        else:
+            src_socket = src_node.outputs.get(from_socket)
+        
+        if not src_socket:
+            raise ValueError(f"Source socket not found: {from_socket}")
+        
+        # Find the destination node and socket
+        dst_node = node_tree.nodes.get(to_node)
+        if not dst_node:
+            raise ValueError(f"Destination node not found: {to_node}")
+        
+        dst_socket = None
+        if isinstance(to_socket, int):
+            if to_socket < len(dst_node.inputs):
+                dst_socket = dst_node.inputs[to_socket]
+        else:
+            dst_socket = dst_node.inputs.get(to_socket)
+        
+        if not dst_socket:
+            raise ValueError(f"Destination socket not found: {to_socket}")
+        
+        # Find and remove the link
+        link_found = False
+        for link in list(node_tree.links):
+            if (link.from_node == src_node and 
+                link.from_socket == src_socket and
+                link.to_node == dst_node and 
+                link.to_socket == dst_socket):
+                node_tree.links.remove(link)
+                link_found = True
+                break
+        
+        if not link_found:
+            raise ValueError(f"Link not found from {from_node}.{from_socket} to {to_node}.{to_socket}")
+        
+        return {
+            "success": True,
+            "from_node": from_node,
+            "from_socket": src_socket.name,
+            "to_node": to_node,
+            "to_socket": dst_socket.name,
+        }
+
+    def set_node_socket_default(self, node_tree_name, node_name, socket_name, value, is_output=False):
+        """
+        Set the default value of an unconnected socket.
+        """
+        node_tree = bpy.data.node_groups.get(node_tree_name)
+        if not node_tree:
+            raise ValueError(f"Node tree not found: {node_tree_name}")
+        
+        node = node_tree.nodes.get(node_name)
+        if not node:
+            raise ValueError(f"Node not found: {node_name}")
+        
+        # Get the socket collection
+        sockets = node.outputs if is_output else node.inputs
+        
+        # Find the socket
+        socket = None
+        if isinstance(socket_name, int):
+            if socket_name < len(sockets):
+                socket = sockets[socket_name]
+        else:
+            socket = sockets.get(socket_name)
+        
+        if not socket:
+            available = [f"[{i}] {s.name}" for i, s in enumerate(sockets)]
+            socket_type = "output" if is_output else "input"
+            raise ValueError(f"{socket_type.title()} socket not found: {socket_name}. Available: {available}")
+        
+        if not hasattr(socket, 'default_value'):
+            raise ValueError(f"Socket {socket.name} does not have a default_value property")
+        
+        # Get old value
+        try:
+            old_value = socket.default_value
+            if hasattr(old_value, '__iter__') and not isinstance(old_value, str):
+                old_value = list(old_value)
+        except:
+            old_value = None
+        
+        # Set new value
+        socket.default_value = value
+        
+        # Get new value
+        try:
+            new_value = socket.default_value
+            if hasattr(new_value, '__iter__') and not isinstance(new_value, str):
+                new_value = list(new_value)
+        except:
+            new_value = value
+        
+        return {
+            "success": True,
+            "node": node.name,
+            "socket": socket.name,
+            "old_value": old_value,
+            "new_value": new_value,
+        }
+
+    def validate_geonode_network(self, node_tree_name):
+        """
+        Comprehensive validation of a geometry node network.
+        """
+        node_tree = bpy.data.node_groups.get(node_tree_name)
+        if not node_tree:
+            raise ValueError(f"Node tree not found: {node_tree_name}")
+        
+        issues = []
+        suggestions = []
+        
+        # Find orphan nodes
+        orphan_nodes = []
+        interface_types = {'NodeGroupInput', 'NodeGroupOutput', 'NodeFrame', 'NodeReroute'}
+        
+        for node in node_tree.nodes:
+            if node.bl_idname in interface_types:
+                continue
+            
+            has_input = any(inp.is_linked for inp in node.inputs)
+            has_output = any(out.is_linked for out in node.outputs)
+            
+            if not has_input and not has_output:
+                orphan_nodes.append(node.name)
+                issues.append({
+                    "severity": "warning",
+                    "type": "orphan_node",
+                    "node": node.name,
+                    "message": f"Node '{node.name}' has no connections",
+                })
+        
+        if orphan_nodes:
+            suggestions.append({
+                "priority": 1,
+                "action": "delete_orphan_nodes",
+                "nodes": orphan_nodes,
+                "message": f"Delete {len(orphan_nodes)} orphan nodes that have no effect",
+            })
+        
+        # Check for missing required inputs
+        required_types = {'NodeSocketGeometry'}
+        missing_required = []
+        
+        for node in node_tree.nodes:
+            if node.bl_idname in interface_types:
+                continue
+            
+            for inp in node.inputs:
+                socket_type = inp.bl_idname if hasattr(inp, 'bl_idname') else ''
+                if socket_type in required_types and not inp.is_linked:
+                    # Check if it's the main geometry input (first one)
+                    if list(node.inputs).index(inp) == 0 or inp.name in ['Geometry', 'Mesh', 'Curve']:
+                        missing_required.append({
+                            "node": node.name,
+                            "socket": inp.name,
+                            "type": socket_type,
+                        })
+                        issues.append({
+                            "severity": "error",
+                            "type": "missing_required",
+                            "node": node.name,
+                            "socket": inp.name,
+                            "message": f"Required input '{inp.name}' on '{node.name}' is not connected",
+                        })
+        
+        if missing_required:
+            suggestions.append({
+                "priority": 0,
+                "action": "connect_required_inputs",
+                "inputs": missing_required,
+                "message": "Connect required geometry inputs",
+            })
+        
+        # Check Group Input/Output
+        has_group_input = False
+        has_group_output = False
+        group_output_connected = False
+        
+        for node in node_tree.nodes:
+            if node.bl_idname == 'NodeGroupInput':
+                has_group_input = True
+            elif node.bl_idname == 'NodeGroupOutput':
+                has_group_output = True
+                group_output_connected = any(inp.is_linked for inp in node.inputs)
+        
+        if not has_group_output:
+            issues.append({
+                "severity": "error",
+                "type": "group_interface",
+                "message": "No Group Output node found",
+            })
+        elif not group_output_connected:
+            issues.append({
+                "severity": "warning",
+                "type": "group_interface",
+                "message": "Group Output has no connected inputs - nothing will be output",
+            })
+        
+        # Statistics
+        stats = {
+            "total_nodes": len(node_tree.nodes),
+            "total_links": len(node_tree.links),
+            "orphan_count": len(orphan_nodes),
+            "missing_required_count": len(missing_required),
+        }
+        
+        # Determine overall validity
+        has_errors = any(issue["severity"] == "error" for issue in issues)
+        
+        return {
+            "node_tree_name": node_tree.name,
+            "is_valid": not has_errors,
+            "issues": issues,
+            "issue_count": len(issues),
+            "statistics": stats,
+            "suggestions": sorted(suggestions, key=lambda x: x["priority"]),
+        }
+
+    def get_node_tree_interface(self, node_tree_name):
+        """
+        Get the interface (exposed inputs and outputs) of a node tree.
+        """
+        node_tree = bpy.data.node_groups.get(node_tree_name)
+        if not node_tree:
+            raise ValueError(f"Node tree not found: {node_tree_name}")
+        
+        inputs = []
+        outputs = []
+        
+        if hasattr(node_tree, 'interface'):
+            for item in node_tree.interface.items_tree:
+                if item.item_type == 'SOCKET':
+                    socket_info = {
+                        "name": item.name,
+                        "identifier": item.identifier,
+                        "socket_type": item.socket_type,
+                    }
+                    
+                    # Try to get default value
+                    if hasattr(item, 'default_value'):
+                        try:
+                            val = item.default_value
+                            if hasattr(val, '__iter__') and not isinstance(val, str):
+                                socket_info["default_value"] = list(val)
+                            else:
+                                socket_info["default_value"] = val
+                        except:
+                            pass
+                    
+                    if item.in_out == 'INPUT':
+                        inputs.append(socket_info)
+                    else:
+                        outputs.append(socket_info)
+        
+        return {
+            "node_tree_name": node_tree.name,
+            "inputs": inputs,
+            "outputs": outputs,
+        }
+
+    def insert_node_between(self, node_tree_name, from_node, from_socket, to_node, to_socket,
+                            new_node_type, new_node_name=None, input_socket=0, output_socket=0,
+                            properties=None):
+        """
+        Insert a new node between two connected nodes.
+        
+        This removes the existing link and creates:
+        from_node[from_socket] -> new_node[input_socket]
+        new_node[output_socket] -> to_node[to_socket]
+        """
+        node_tree = bpy.data.node_groups.get(node_tree_name)
+        if not node_tree:
+            raise ValueError(f"Node tree not found: {node_tree_name}")
+        
+        # Find the source and destination nodes
+        src_node = node_tree.nodes.get(from_node)
+        if not src_node:
+            raise ValueError(f"Source node not found: {from_node}")
+        
+        dst_node = node_tree.nodes.get(to_node)
+        if not dst_node:
+            raise ValueError(f"Destination node not found: {to_node}")
+        
+        # Find the source socket
+        if isinstance(from_socket, int):
+            if from_socket >= len(src_node.outputs):
+                raise ValueError(f"Output index {from_socket} out of range for {from_node}")
+            src_socket = src_node.outputs[from_socket]
+        else:
+            src_socket = src_node.outputs.get(from_socket)
+            if not src_socket:
+                raise ValueError(f"Output socket '{from_socket}' not found on {from_node}")
+        
+        # Find the destination socket
+        if isinstance(to_socket, int):
+            if to_socket >= len(dst_node.inputs):
+                raise ValueError(f"Input index {to_socket} out of range for {to_node}")
+            dst_socket = dst_node.inputs[to_socket]
+        else:
+            dst_socket = dst_node.inputs.get(to_socket)
+            if not dst_socket:
+                raise ValueError(f"Input socket '{to_socket}' not found on {to_node}")
+        
+        # Find and remove the existing link
+        existing_link = None
+        for link in node_tree.links:
+            if link.from_socket == src_socket and link.to_socket == dst_socket:
+                existing_link = link
+                break
+        
+        if not existing_link:
+            raise ValueError(f"No link found between {from_node}:{from_socket} and {to_node}:{to_socket}")
+        
+        # Calculate position for new node (midpoint between source and dest)
+        mid_x = (src_node.location.x + dst_node.location.x) / 2
+        mid_y = (src_node.location.y + dst_node.location.y) / 2
+        
+        # Remove the existing link
+        node_tree.links.remove(existing_link)
+        
+        # Create the new node
+        try:
+            new_node = node_tree.nodes.new(new_node_type)
+        except RuntimeError as e:
+            # Restore the original link if node creation fails
+            node_tree.links.new(src_socket, dst_socket)
+            raise ValueError(f"Failed to create node of type '{new_node_type}': {str(e)}")
+        
+        # Set name and position
+        if new_node_name:
+            new_node.name = new_node_name
+        new_node.location = (mid_x, mid_y)
+        
+        # Set properties if provided
+        if properties:
+            for prop_name, prop_value in properties.items():
+                if hasattr(new_node, prop_name):
+                    try:
+                        setattr(new_node, prop_name, prop_value)
+                    except Exception as e:
+                        print(f"Warning: Could not set property {prop_name}: {e}")
+        
+        # Find the input socket on new node
+        if isinstance(input_socket, int):
+            if input_socket >= len(new_node.inputs):
+                raise ValueError(f"Input index {input_socket} out of range for new node")
+            new_in_socket = new_node.inputs[input_socket]
+        else:
+            new_in_socket = new_node.inputs.get(input_socket)
+            if not new_in_socket:
+                raise ValueError(f"Input socket '{input_socket}' not found on new node")
+        
+        # Find the output socket on new node
+        if isinstance(output_socket, int):
+            if output_socket >= len(new_node.outputs):
+                raise ValueError(f"Output index {output_socket} out of range for new node")
+            new_out_socket = new_node.outputs[output_socket]
+        else:
+            new_out_socket = new_node.outputs.get(output_socket)
+            if not new_out_socket:
+                raise ValueError(f"Output socket '{output_socket}' not found on new node")
+        
+        # Create the two new links
+        link1 = node_tree.links.new(src_socket, new_in_socket)
+        link2 = node_tree.links.new(new_out_socket, dst_socket)
+        
+        return {
+            "success": True,
+            "new_node": new_node.name,
+            "new_node_type": new_node.bl_idname,
+            "location": [new_node.location.x, new_node.location.y],
+            "links_created": [
+                {
+                    "from": f"{from_node}:{src_socket.name}",
+                    "to": f"{new_node.name}:{new_in_socket.name}"
+                },
+                {
+                    "from": f"{new_node.name}:{new_out_socket.name}",
+                    "to": f"{to_node}:{dst_socket.name}"
+                }
+            ],
+            "link_removed": f"{from_node}:{src_socket.name} -> {to_node}:{dst_socket.name}"
+        }
+
+    def get_modifier_details(self, object_name, modifier_name=None):
+        """
+        Get detailed information about modifiers on an object.
+        
+        Parameters:
+        - object_name: Name of the object
+        - modifier_name: Optional specific modifier name
+        
+        Returns modifier info including type-specific properties.
+        """
+        obj = bpy.data.objects.get(object_name)
+        if not obj:
+            raise ValueError(f"Object not found: {object_name}. Available: {[o.name for o in bpy.data.objects]}")
+        
+        def get_input_value(modifier, identifier):
+            """Get the value of a modifier input by identifier"""
+            try:
+                val = modifier[identifier]
+                # Handle different value types
+                if val is None:
+                    return None
+                # Handle Blender ID types (Object, Material, etc.)
+                if hasattr(val, 'name') and hasattr(val, 'bl_rna'):
+                    return {"type": type(val).__name__, "name": val.name}
+                # Handle vectors, colors
+                if hasattr(val, '__iter__') and not isinstance(val, str):
+                    try:
+                        return [float(v) if isinstance(v, (int, float)) else str(v) for v in val]
+                    except (TypeError, ValueError):
+                        return str(val)
+                # Handle simple types
+                if isinstance(val, (bool, int, float, str)):
+                    return val
+                return str(val)
+            except (KeyError, TypeError):
+                return None
+        
+        def extract_modifier_info(mod):
+            """Extract information from a single modifier"""
+            mod_info = {
+                "name": mod.name,
+                "type": mod.type,
+                "show_viewport": mod.show_viewport,
+                "show_render": mod.show_render,
+            }
+            
+            # Special handling for Geometry Nodes modifiers
+            if mod.type == 'NODES':
+                if mod.node_group:
+                    mod_info["node_group"] = mod.node_group.name
+                    
+                    # Get exposed inputs from the node group interface
+                    inputs = []
+                    if hasattr(mod.node_group, 'interface'):
+                        for item in mod.node_group.interface.items_tree:
+                            if item.item_type == 'SOCKET' and item.in_out == 'INPUT':
+                                input_info = {
+                                    "name": item.name,
+                                    "identifier": item.identifier,
+                                    "socket_type": item.socket_type,
+                                }
+                                # Get the actual value from the modifier
+                                val = get_input_value(mod, item.identifier)
+                                if val is not None:
+                                    input_info["value"] = val
+                                inputs.append(input_info)
+                    mod_info["inputs"] = inputs
+                    
+                    # Get any warnings
+                    if hasattr(mod, 'node_warnings') and mod.node_warnings:
+                        mod_info["warnings"] = [w.message for w in mod.node_warnings]
+                else:
+                    mod_info["node_group"] = None
+            
+            # Add common properties for other modifier types
+            elif mod.type == 'SUBSURF':
+                mod_info["levels"] = mod.levels
+                mod_info["render_levels"] = mod.render_levels
+            elif mod.type == 'MIRROR':
+                mod_info["use_axis"] = [mod.use_axis[0], mod.use_axis[1], mod.use_axis[2]]
+            elif mod.type == 'ARRAY':
+                mod_info["count"] = mod.count
+                mod_info["relative_offset_displace"] = list(mod.relative_offset_displace)
+            elif mod.type == 'BEVEL':
+                mod_info["width"] = mod.width
+                mod_info["segments"] = mod.segments
+            elif mod.type == 'SOLIDIFY':
+                mod_info["thickness"] = mod.thickness
+            
+            return mod_info
+        
+        # If specific modifier requested
+        if modifier_name:
+            mod = obj.modifiers.get(modifier_name)
+            if not mod:
+                raise ValueError(f"Modifier not found: {modifier_name}. Available: {[m.name for m in obj.modifiers]}")
+            return extract_modifier_info(mod)
+        
+        # Return all modifiers
+        return {
+            "object_name": obj.name,
+            "modifier_count": len(obj.modifiers),
+            "modifiers": [extract_modifier_info(m) for m in obj.modifiers]
+        }
+
+    def list_node_trees(self):
+        """
+        List all node trees (node groups) in the file.
+        
+        Returns node trees organized by type with usage information.
+        """
+        # Organize by type
+        by_type = {}
+        
+        for ng in bpy.data.node_groups:
+            tree_type = ng.bl_idname
+            if tree_type not in by_type:
+                by_type[tree_type] = []
+            
+            tree_info = {
+                "name": ng.name,
+                "node_count": len(ng.nodes),
+                "link_count": len(ng.links),
+                "users": [],
+            }
+            
+            # Find what uses this node tree
+            # Check modifiers on objects
+            for obj in bpy.data.objects:
+                for mod in obj.modifiers:
+                    if mod.type == 'NODES' and mod.node_group == ng:
+                        tree_info["users"].append({
+                            "type": "modifier",
+                            "object": obj.name,
+                            "modifier": mod.name
+                        })
+            
+            # Check if used as a group node inside other node trees
+            for other_ng in bpy.data.node_groups:
+                if other_ng != ng:
+                    for node in other_ng.nodes:
+                        if node.bl_idname in ('GeometryNodeGroup', 'ShaderNodeGroup', 'CompositorNodeGroup'):
+                            if hasattr(node, 'node_tree') and node.node_tree == ng:
+                                tree_info["users"].append({
+                                    "type": "node_group",
+                                    "parent_tree": other_ng.name,
+                                    "node_name": node.name
+                                })
+            
+            by_type[tree_type].append(tree_info)
+        
+        # Also check material node trees
+        material_trees = []
+        for mat in bpy.data.materials:
+            if mat.use_nodes and mat.node_tree:
+                material_trees.append({
+                    "name": mat.name,
+                    "node_count": len(mat.node_tree.nodes),
+                    "link_count": len(mat.node_tree.links),
+                    "type": "material"
+                })
+        
+        return {
+            "node_groups": by_type,
+            "material_node_trees": material_trees,
+            "total_node_groups": len(bpy.data.node_groups),
+            "total_materials_with_nodes": len(material_trees)
+        }
+
+    def list_materials(self):
+        """
+        List all materials in the file with usage info.
+        """
+        materials = []
+        
+        for mat in bpy.data.materials:
+            mat_info = {
+                "name": mat.name,
+                "use_nodes": mat.use_nodes,
+                "users": mat.users,
+                "used_by": [],
+            }
+            
+            # Find which objects use this material
+            for obj in bpy.data.objects:
+                if obj.type == 'MESH' and obj.data:
+                    for slot in obj.material_slots:
+                        if slot.material == mat:
+                            mat_info["used_by"].append(obj.name)
+                            break
+            
+            # Basic node tree info if node-based
+            if mat.use_nodes and mat.node_tree:
+                mat_info["node_count"] = len(mat.node_tree.nodes)
+                mat_info["link_count"] = len(mat.node_tree.links)
+                
+                # Find the main shader type (Principled BSDF, etc.)
+                for node in mat.node_tree.nodes:
+                    if node.bl_idname in ('ShaderNodeBsdfPrincipled', 'ShaderNodeEmission', 
+                                          'ShaderNodeBsdfDiffuse', 'ShaderNodeBsdfGlossy',
+                                          'ShaderNodeMixShader', 'ShaderNodeBsdfGlass'):
+                        mat_info["main_shader"] = node.bl_idname.replace('ShaderNode', '')
+                        break
+            
+            materials.append(mat_info)
+        
+        return {
+            "material_count": len(materials),
+            "materials": materials
+        }
+
+    def get_material_nodes(self, material_name, node_name=None):
+        """
+        Get detailed node information for a material's shader tree.
+        """
+        mat = bpy.data.materials.get(material_name)
+        if not mat:
+            raise ValueError(f"Material not found: {material_name}. Available: {[m.name for m in bpy.data.materials]}")
+        
+        if not mat.use_nodes or not mat.node_tree:
+            return {"material_name": material_name, "use_nodes": False, "message": "Material does not use nodes"}
+        
+        node_tree = mat.node_tree
+        
+        def get_socket_value(socket):
+            """Safely extract socket default value"""
+            try:
+                if hasattr(socket, 'default_value'):
+                    val = socket.default_value
+                    if val is None:
+                        return None
+                    if hasattr(val, 'name') and hasattr(val, 'bl_rna'):
+                        return f"<{type(val).__name__}: {val.name}>"
+                    if hasattr(val, '__iter__') and not isinstance(val, str):
+                        try:
+                            return [float(v) if isinstance(v, (int, float)) else str(v) for v in val]
+                        except (TypeError, ValueError):
+                            return str(val)
+                    if isinstance(val, (bool, int, float, str)):
+                        return val
+                    return str(val)
+            except (AttributeError, TypeError, RuntimeError):
+                pass
+            return None
+        
+        def extract_node_info(node):
+            node_info = {
+                "name": node.name,
+                "bl_idname": node.bl_idname,
+                "label": node.label if node.label else None,
+                "location": [round(node.location.x, 2), round(node.location.y, 2)],
+                "inputs": [],
+                "outputs": [],
+            }
+            
+            # Node-specific properties
+            if hasattr(node, 'image') and node.image:
+                node_info["image"] = node.image.name
+            if hasattr(node, 'color_ramp'):
+                node_info["has_color_ramp"] = True
+            if hasattr(node, 'blend_type'):
+                node_info["blend_type"] = node.blend_type
+            if hasattr(node, 'operation'):
+                node_info["operation"] = node.operation
+            
+            for inp in node.inputs:
+                socket_info = {
+                    "name": inp.name,
+                    "type": inp.bl_idname if hasattr(inp, 'bl_idname') else type(inp).__name__,
+                    "is_linked": inp.is_linked,
+                }
+                if not inp.is_linked:
+                    val = get_socket_value(inp)
+                    if val is not None:
+                        socket_info["default_value"] = val
+                node_info["inputs"].append(socket_info)
+            
+            for out in node.outputs:
+                socket_info = {
+                    "name": out.name,
+                    "type": out.bl_idname if hasattr(out, 'bl_idname') else type(out).__name__,
+                    "is_linked": out.is_linked,
+                }
+                node_info["outputs"].append(socket_info)
+            
+            return node_info
+        
+        # Get links
+        links = []
+        for link in node_tree.links:
+            links.append({
+                "from_node": link.from_node.name,
+                "from_socket": link.from_socket.name,
+                "to_node": link.to_node.name,
+                "to_socket": link.to_socket.name,
+            })
+        
+        if node_name:
+            node = node_tree.nodes.get(node_name)
+            if not node:
+                raise ValueError(f"Node not found: {node_name}. Available: {[n.name for n in node_tree.nodes]}")
+            return extract_node_info(node)
+        
+        return {
+            "material_name": mat.name,
+            "node_count": len(node_tree.nodes),
+            "link_count": len(node_tree.links),
+            "nodes": [extract_node_info(n) for n in node_tree.nodes],
+            "links": links
+        }
+
+    def get_selection(self):
+        """
+        Get current selection state.
+        """
+        context = bpy.context
+        
+        result = {
+            "active_object": None,
+            "selected_objects": [],
+            "selection_count": 0,
+            "mode": context.mode,
+        }
+        
+        # Active object
+        if context.active_object:
+            obj = context.active_object
+            result["active_object"] = {
+                "name": obj.name,
+                "type": obj.type,
+                "location": [round(obj.location.x, 4), round(obj.location.y, 4), round(obj.location.z, 4)],
+            }
+        
+        # All selected objects
+        for obj in context.selected_objects:
+            result["selected_objects"].append({
+                "name": obj.name,
+                "type": obj.type,
+                "is_active": (obj == context.active_object),
+            })
+        
+        result["selection_count"] = len(context.selected_objects)
+        
+        return result
+
+    def set_selection(self, object_names, mode="replace", active=None):
+        """
+        Set object selection.
+        """
+        # Validate mode
+        if mode not in ("replace", "add", "remove"):
+            raise ValueError(f"Invalid mode: {mode}. Must be 'replace', 'add', or 'remove'")
+        
+        # Validate object names exist
+        not_found = []
+        objects = []
+        for name in object_names:
+            obj = bpy.data.objects.get(name)
+            if obj:
+                objects.append(obj)
+            else:
+                not_found.append(name)
+        
+        if not_found:
+            raise ValueError(f"Objects not found: {not_found}. Available: {[o.name for o in bpy.data.objects]}")
+        
+        # Apply selection based on mode
+        if mode == "replace":
+            # Deselect all first
+            bpy.ops.object.select_all(action='DESELECT')
+            for obj in objects:
+                obj.select_set(True)
+        elif mode == "add":
+            for obj in objects:
+                obj.select_set(True)
+        elif mode == "remove":
+            for obj in objects:
+                obj.select_set(False)
+        
+        # Set active object if specified
+        if active:
+            active_obj = bpy.data.objects.get(active)
+            if not active_obj:
+                raise ValueError(f"Active object not found: {active}")
+            if not active_obj.select_get():
+                raise ValueError(f"Active object must be selected: {active}")
+            bpy.context.view_layer.objects.active = active_obj
+        elif mode == "replace" and objects:
+            # Default: make first object active
+            bpy.context.view_layer.objects.active = objects[0]
+        
+        # Return new selection state
+        return self.get_selection()
+
+    def batch_rename(self, object_names=None, use_selection=False, new_base_name=None,
+                     find=None, replace=None, prefix=None, suffix=None,
+                     number_start=1, number_padding=2):
+        """
+        Batch rename objects with various modes.
+        """
+        # Get target objects
+        if use_selection:
+            objects = list(bpy.context.selected_objects)
+        elif object_names:
+            objects = []
+            not_found = []
+            for name in object_names:
+                obj = bpy.data.objects.get(name)
+                if obj:
+                    objects.append(obj)
+                else:
+                    not_found.append(name)
+            if not_found:
+                raise ValueError(f"Objects not found: {not_found}")
+        else:
+            raise ValueError("Must provide object_names or use_selection=True")
+        
+        if not objects:
+            raise ValueError("No objects to rename")
+        
+        renames = []
+        
+        # Determine rename mode
+        if new_base_name:
+            # Sequential naming: BaseName.01, BaseName.02, etc.
+            for i, obj in enumerate(objects):
+                old_name = obj.name
+                num = str(number_start + i).zfill(number_padding)
+                new_name = f"{new_base_name}.{num}"
+                obj.name = new_name
+                renames.append({"old": old_name, "new": obj.name})
+        
+        elif find is not None and replace is not None:
+            # Find/replace mode
+            for obj in objects:
+                old_name = obj.name
+                if find in old_name:
+                    new_name = old_name.replace(find, replace)
+                    obj.name = new_name
+                    renames.append({"old": old_name, "new": obj.name})
+                else:
+                    renames.append({"old": old_name, "new": old_name, "skipped": "pattern not found"})
+        
+        elif prefix:
+            # Add prefix
+            for obj in objects:
+                old_name = obj.name
+                new_name = f"{prefix}{old_name}"
+                obj.name = new_name
+                renames.append({"old": old_name, "new": obj.name})
+        
+        elif suffix:
+            # Add suffix
+            for obj in objects:
+                old_name = obj.name
+                new_name = f"{old_name}{suffix}"
+                obj.name = new_name
+                renames.append({"old": old_name, "new": obj.name})
+        
+        else:
+            raise ValueError("Must specify a rename mode: new_base_name, find/replace, prefix, or suffix")
+        
+        return {
+            "renamed_count": len([r for r in renames if r.get("old") != r.get("new")]),
+            "total_processed": len(renames),
+            "renames": renames
+        }
 
     def get_viewport_screenshot(self, max_size=800, filepath=None, format="png"):
         """

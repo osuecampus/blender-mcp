@@ -346,6 +346,475 @@ def execute_blender_code(ctx: Context, code: str) -> str:
         logger.error(f"Error executing code: {str(e)}")
         return f"Error executing code: {str(e)}"
 
+
+# ============================================
+# GEOMETRY NODES TOOLS (Fork additions)
+# ============================================
+
+@mcp.tool()
+def get_node_details(ctx: Context, node_tree_name: str, node_name: str = None) -> str:
+    """
+    Get detailed information about nodes in a Blender node tree (Geometry Nodes, Shader Nodes, etc.).
+    
+    This tool provides comprehensive node introspection including:
+    - Node type (bl_idname) and custom labels
+    - Input/output sockets with their current values (for unconnected sockets)
+    - Node-specific properties (e.g., Math node operation, Compare mode, etc.)
+    - Node position in the editor
+    
+    Parameters:
+    - node_tree_name: The name of the node tree to inspect (e.g., "Geometry Nodes", "Random Rotation")
+    - node_name: Optional - specific node name to get details for. If not provided, returns all nodes.
+    
+    Returns detailed JSON with node information useful for understanding and modifying node setups.
+    """
+    try:
+        blender = get_blender_connection()
+        params = {"node_tree_name": node_tree_name}
+        if node_name:
+            params["node_name"] = node_name
+        
+        result = blender.send_command("get_node_details", params)
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting node details: {str(e)}")
+        return f"Error getting node details: {str(e)}"
+
+
+@mcp.tool()
+def get_node_links(ctx: Context, node_tree_name: str) -> str:
+    """
+    Get all connections (links) between nodes in a Blender node tree.
+    
+    This tool shows how nodes are connected, complementing get_node_details which shows
+    node properties. Together they provide complete visibility into node setups.
+    
+    Parameters:
+    - node_tree_name: The name of the node tree to inspect (e.g., "Geometry Nodes")
+    
+    Returns a list of connections showing:
+    - from_node: Source node name
+    - from_socket: Source socket name and index
+    - to_node: Target node name  
+    - to_socket: Target socket name and index
+    
+    Use this to understand data flow and dependencies between nodes.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("get_node_links", {"node_tree_name": node_tree_name})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting node links: {str(e)}")
+        return f"Error getting node links: {str(e)}"
+
+
+@mcp.tool()
+def get_node_connections(ctx: Context, node_tree_name: str, node_name: str) -> str:
+    """
+    Get all connections to and from a specific node in a node tree.
+    
+    Unlike get_node_links (which returns all links), this focuses on a single node,
+    showing both incoming and outgoing connections with socket details. Essential for
+    understanding how a specific node integrates into the network.
+    
+    Parameters:
+    - node_tree_name: The name of the node tree (e.g., "PlantSystem")
+    - node_name: The name of the specific node to inspect
+    
+    Returns:
+    - incoming: List of connections TO this node (what feeds it)
+    - outgoing: List of connections FROM this node (what it feeds)
+    - unconnected_inputs: Input sockets with no incoming connection
+    - unconnected_outputs: Output sockets with no outgoing connection
+    
+    Use this to debug data flow issues or understand node dependencies.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("get_node_connections", {
+            "node_tree_name": node_tree_name,
+            "node_name": node_name
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting node connections: {str(e)}")
+        return f"Error getting node connections: {str(e)}"
+
+
+@mcp.tool()
+def get_geometry_stats(ctx: Context, object_name: str, apply_modifiers: bool = True) -> str:
+    """
+    Get geometry statistics for an object, optionally after applying modifiers.
+    
+    This is critical for validating geometry nodes output - it shows the ACTUAL
+    resulting geometry, not just the base mesh. Use to verify parameter effects.
+    
+    Parameters:
+    - object_name: Name of the object to analyze
+    - apply_modifiers: If True, evaluate geometry after all modifiers (default: True)
+    
+    Returns:
+    - vertex_count: Number of vertices
+    - edge_count: Number of edges  
+    - face_count: Number of faces (polygons)
+    - bounding_box: Min/max coordinates in world space
+    - dimensions: Size in X, Y, Z
+    - center: Center point of the bounding box
+    
+    Use this to verify geometry nodes are producing expected output.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("get_geometry_stats", {
+            "object_name": object_name,
+            "apply_modifiers": apply_modifiers
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting geometry stats: {str(e)}")
+        return f"Error getting geometry stats: {str(e)}"
+
+
+@mcp.tool()
+def trace_node_dataflow(
+    ctx: Context,
+    node_tree_name: str,
+    from_node: str,
+    from_socket: str,
+    to_node: str,
+    to_socket: str
+) -> str:
+    """
+    Trace the data flow path between two sockets in a node tree.
+    
+    Finds all possible paths from a source socket to a destination socket,
+    showing the complete chain of nodes the data flows through. Essential for
+    debugging complex node networks.
+    
+    Parameters:
+    - node_tree_name: Name of the node tree
+    - from_node: Starting node name
+    - from_socket: Starting socket name (output socket on from_node)
+    - to_node: Ending node name
+    - to_socket: Ending socket name (input socket on to_node)
+    
+    Returns:
+    - paths: List of paths, each showing the sequence of nodes/sockets
+    - path_count: Number of paths found
+    - direct_connection: True if there's a direct link between the sockets
+    
+    Use this to understand data flow and debug "why isn't my value reaching X" issues.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("trace_node_dataflow", {
+            "node_tree_name": node_tree_name,
+            "from_node": from_node,
+            "from_socket": from_socket,
+            "to_node": to_node,
+            "to_socket": to_socket
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error tracing node dataflow: {str(e)}")
+        return f"Error tracing node dataflow: {str(e)}"
+
+
+@mcp.tool()
+def set_geonode_parameter(
+    ctx: Context,
+    object_name: str,
+    modifier_name: str,
+    parameter_name: str,
+    value: float | int | bool | str | list
+) -> str:
+    """
+    Set a geometry nodes modifier parameter with automatic depsgraph refresh.
+    
+    This tool handles the Blender quirk where modifier parameter changes via Python
+    don't always trigger geometry re-evaluation. It uses the viewport toggle
+    workaround documented in BLENDER_API_LESSONS.md.
+    
+    Parameters:
+    - object_name: Name of the object with the modifier
+    - modifier_name: Name of the geometry nodes modifier
+    - parameter_name: Socket identifier (e.g., "Socket_1" or display name like "Trunk Count")
+    - value: New value (type should match socket type)
+    
+    Returns:
+    - success: Whether the parameter was set
+    - old_value: Previous value
+    - new_value: Confirmed new value after refresh
+    - geometry_updated: Whether geometry was re-evaluated
+    
+    Use this instead of execute_blender_code for setting geometry nodes parameters.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("set_geonode_parameter", {
+            "object_name": object_name,
+            "modifier_name": modifier_name,
+            "parameter_name": parameter_name,
+            "value": value
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error setting geonode parameter: {str(e)}")
+        return f"Error setting geonode parameter: {str(e)}"
+
+
+@mcp.tool()
+def find_orphan_nodes(ctx: Context, node_tree_name: str) -> str:
+    """
+    Find nodes and sockets with no connections in a node tree.
+    
+    Identifies:
+    - Completely disconnected nodes (no inputs or outputs connected)
+    - Partially connected nodes (some sockets unused)
+    - Required unconnected sockets (inputs that should probably be connected)
+    
+    Parameters:
+    - node_tree_name: Name of the node tree to analyze
+    
+    Returns:
+    - orphan_nodes: Nodes with zero connections
+    - partial_nodes: Nodes with some unconnected sockets
+    - unconnected_required: Input sockets that are typically required but not connected
+    - total_orphans: Count of completely disconnected nodes
+    
+    Use this to clean up node networks and find missing connections.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("find_orphan_nodes", {
+            "node_tree_name": node_tree_name
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error finding orphan nodes: {str(e)}")
+        return f"Error finding orphan nodes: {str(e)}"
+
+
+@mcp.tool()
+def get_modifier_details(ctx: Context, object_name: str, modifier_name: str = None) -> str:
+    """
+    Get detailed information about modifiers on a Blender object.
+    
+    This is especially useful for Geometry Nodes modifiers, where it reveals:
+    - The node group being used
+    - All exposed input values (the modifier panel settings)
+    - Any warnings from the node tree
+    
+    Parameters:
+    - object_name: Name of the object to inspect
+    - modifier_name: Optional - specific modifier name. If not provided, returns all modifiers.
+    
+    Returns modifier stack with types, settings, and for NodesModifier: the node group and input values.
+    """
+    try:
+        blender = get_blender_connection()
+        params = {"object_name": object_name}
+        if modifier_name:
+            params["modifier_name"] = modifier_name
+        
+        result = blender.send_command("get_modifier_details", params)
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting modifier details: {str(e)}")
+        return f"Error getting modifier details: {str(e)}"
+
+
+@mcp.tool()
+def list_node_trees(ctx: Context) -> str:
+    """
+    List all node trees (node groups) available in the Blender file.
+    
+    Returns node trees organized by type:
+    - GeometryNodeTree: Geometry Nodes groups
+    - ShaderNodeTree: Material/shader node groups  
+    - CompositorNodeTree: Compositing node groups
+    
+    For each node tree, shows:
+    - Name and type
+    - Node count and link count
+    - Which objects/materials use it (for tracking dependencies)
+    
+    Use this to discover available node groups before calling get_node_details or get_node_links.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("list_node_trees", {})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error listing node trees: {str(e)}")
+        return f"Error listing node trees: {str(e)}"
+
+
+@mcp.tool()
+def list_materials(ctx: Context) -> str:
+    """
+    List all materials in the Blender file with details.
+    
+    Returns for each material:
+    - Name and whether it uses nodes
+    - User count (how many objects use it)
+    - Which objects use it
+    - Basic shader info (if node-based)
+    
+    Use this to find materials before inspecting them with get_material_nodes.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("list_materials", {})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error listing materials: {str(e)}")
+        return f"Error listing materials: {str(e)}"
+
+
+@mcp.tool()
+def get_material_nodes(ctx: Context, material_name: str, node_name: str = None) -> str:
+    """
+    Get detailed node information for a material's shader node tree.
+    
+    Similar to get_node_details but specifically for material shader nodes.
+    
+    Parameters:
+    - material_name: Name of the material to inspect
+    - node_name: Optional - specific node to get details for
+    
+    Returns node types, connections, and values - useful for understanding
+    shader setups before baking or modifying them.
+    """
+    try:
+        blender = get_blender_connection()
+        params = {"material_name": material_name}
+        if node_name:
+            params["node_name"] = node_name
+        result = blender.send_command("get_material_nodes", params)
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting material nodes: {str(e)}")
+        return f"Error getting material nodes: {str(e)}"
+
+
+@mcp.tool()
+def get_selection(ctx: Context) -> str:
+    """
+    Get the currently selected objects and the active object.
+    
+    Returns:
+    - active_object: The object that operations will target
+    - selected_objects: List of all selected objects with types
+    - selection_count: Number of selected objects
+    
+    Essential for understanding context before giving directions.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("get_selection", {})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting selection: {str(e)}")
+        return f"Error getting selection: {str(e)}"
+
+
+@mcp.tool()
+def set_selection(
+    ctx: Context,
+    object_names: list[str],
+    mode: str = "replace",
+    active: str = None
+) -> str:
+    """
+    Set the object selection in Blender.
+    
+    Parameters:
+    - object_names: List of object names to select
+    - mode: "replace" (clear and select), "add" (add to selection), "remove" (deselect)
+    - active: Optional - set this object as active (must be in selection)
+    
+    Returns confirmation with the new selection state.
+    """
+    try:
+        blender = get_blender_connection()
+        params = {
+            "object_names": object_names,
+            "mode": mode
+        }
+        if active:
+            params["active"] = active
+        result = blender.send_command("set_selection", params)
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error setting selection: {str(e)}")
+        return f"Error setting selection: {str(e)}"
+
+
+@mcp.tool()
+def batch_rename(
+    ctx: Context,
+    object_names: list[str] = None,
+    use_selection: bool = False,
+    new_base_name: str = None,
+    find: str = None,
+    replace: str = None,
+    prefix: str = None,
+    suffix: str = None,
+    number_start: int = 1,
+    number_padding: int = 2
+) -> str:
+    """
+    Batch rename objects with various options.
+    
+    Target objects:
+    - object_names: List of specific objects to rename
+    - use_selection: If True, rename currently selected objects
+    
+    Rename modes (use one):
+    - new_base_name: Rename all to "BaseName.001", "BaseName.002", etc.
+    - find/replace: Find and replace text in names
+    - prefix: Add prefix to existing names
+    - suffix: Add suffix to existing names
+    
+    Options:
+    - number_start: Starting number for sequential naming (default 1)
+    - number_padding: Zero-padding width (default 2 → "01", "02")
+    
+    Returns list of old → new name mappings.
+    """
+    try:
+        blender = get_blender_connection()
+        params = {
+            "use_selection": use_selection,
+            "number_start": number_start,
+            "number_padding": number_padding
+        }
+        if object_names:
+            params["object_names"] = object_names
+        if new_base_name:
+            params["new_base_name"] = new_base_name
+        if find is not None:
+            params["find"] = find
+        if replace is not None:
+            params["replace"] = replace
+        if prefix:
+            params["prefix"] = prefix
+        if suffix:
+            params["suffix"] = suffix
+        
+        result = blender.send_command("batch_rename", params)
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error batch renaming: {str(e)}")
+        return f"Error batch renaming: {str(e)}"
+
+
+# ============================================
+# POLYHAVEN TOOLS
+# ============================================
+
 @telemetry_tool("get_polyhaven_categories")
 @mcp.tool()
 def get_polyhaven_categories(ctx: Context, asset_type: str = "hdris") -> str:
@@ -1012,6 +1481,378 @@ def import_generated_asset_hunyuan(
     except Exception as e:
         logger.error(f"Error generating Hunyuan3D task: {str(e)}")
         return f"Error generating Hunyuan3D task: {str(e)}"
+
+
+# ============================================
+# Geometry Nodes Building Tools
+# ============================================
+
+@mcp.tool()
+def inspect_node_type(ctx: Context, node_type: str) -> str:
+    """
+    Inspect a Blender node type to discover its sockets and properties BEFORE creating it.
+    
+    This prevents "socket not found" errors by letting you see exactly what inputs,
+    outputs, and properties a node type has in the current Blender version.
+    
+    Parameters:
+    - node_type: The node class name (e.g., "GeometryNodeDistributePointsOnFaces", 
+                 "ShaderNodeMath", "GeometryNodeMeshGrid")
+    
+    Returns:
+    - inputs: List of input sockets with names, indices, types, and default values
+    - outputs: List of output sockets with names, indices, and types
+    - properties: Configurable node properties (e.g., operation for Math nodes)
+    - bl_label: Human-readable node name
+    
+    Use this BEFORE calling create_geonode_node to know exactly what sockets exist.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("inspect_node_type", {"node_type": node_type})
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error inspecting node type: {str(e)}")
+        return f"Error inspecting node type: {str(e)}"
+
+
+@mcp.tool()
+def create_geonode_node(
+    ctx: Context,
+    node_tree_name: str,
+    node_type: str,
+    name: str = None,
+    location: list = None,
+    properties: dict = None,
+    defaults: dict = None
+) -> str:
+    """
+    Create a new node in a geometry node tree with optional configuration.
+    
+    This is safer than execute_blender_code as it validates inputs and returns
+    structured information about the created node.
+    
+    Parameters:
+    - node_tree_name: Name of the node tree (e.g., "PlantSystem")
+    - node_type: Node class (e.g., "GeometryNodeMeshGrid", "ShaderNodeMath")
+    - name: Optional custom name for the node
+    - location: Optional [x, y] position in the node editor
+    - properties: Optional dict of property_name -> value (e.g., {"operation": "ADD"})
+    - defaults: Optional dict of socket_name_or_index -> default_value
+    
+    Returns:
+    - name: The actual name assigned to the node
+    - type: The node's bl_idname
+    - inputs: List of input sockets with names and indices
+    - outputs: List of output sockets with names and indices
+    - location: The node's position
+    
+    Example: create_geonode_node("PlantSystem", "ShaderNodeMath", 
+             name="AddHeight", properties={"operation": "ADD"}, defaults={1: 0.0})
+    """
+    try:
+        blender = get_blender_connection()
+        params = {
+            "node_tree_name": node_tree_name,
+            "node_type": node_type,
+        }
+        if name:
+            params["name"] = name
+        if location:
+            params["location"] = location
+        if properties:
+            params["properties"] = properties
+        if defaults:
+            params["defaults"] = defaults
+        
+        result = blender.send_command("create_geonode_node", params)
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error creating node: {str(e)}")
+        return f"Error creating node: {str(e)}"
+
+
+@mcp.tool()
+def create_geonode_link(
+    ctx: Context,
+    node_tree_name: str,
+    from_node: str,
+    from_socket: str | int,
+    to_node: str,
+    to_socket: str | int
+) -> str:
+    """
+    Create a link between two nodes in a geometry node tree.
+    
+    Supports both socket names and indices for reliability across Blender versions.
+    Validates that both nodes and sockets exist before creating the link.
+    
+    Parameters:
+    - node_tree_name: Name of the node tree
+    - from_node: Name of the source node
+    - from_socket: Name or index of the output socket on from_node
+    - to_node: Name of the destination node  
+    - to_socket: Name or index of the input socket on to_node
+    
+    Returns:
+    - success: Whether the link was created
+    - from_node: Source node name
+    - from_socket: Actual socket name used
+    - to_node: Destination node name
+    - to_socket: Actual socket name used
+    
+    Example: create_geonode_link("PlantSystem", "Grid", "Mesh", "Distribute Points", 0)
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("create_geonode_link", {
+            "node_tree_name": node_tree_name,
+            "from_node": from_node,
+            "from_socket": from_socket,
+            "to_node": to_node,
+            "to_socket": to_socket,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error creating link: {str(e)}")
+        return f"Error creating link: {str(e)}"
+
+
+@mcp.tool()
+def delete_geonode_node(
+    ctx: Context,
+    node_tree_name: str,
+    node_name: str
+) -> str:
+    """
+    Delete a node from a geometry node tree.
+    
+    Also removes all links connected to the node.
+    
+    Parameters:
+    - node_tree_name: Name of the node tree
+    - node_name: Name of the node to delete
+    
+    Returns:
+    - success: Whether the node was deleted
+    - removed_links: Number of links that were removed
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("delete_geonode_node", {
+            "node_tree_name": node_tree_name,
+            "node_name": node_name,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error deleting node: {str(e)}")
+        return f"Error deleting node: {str(e)}"
+
+
+@mcp.tool()
+def delete_geonode_link(
+    ctx: Context,
+    node_tree_name: str,
+    from_node: str,
+    from_socket: str | int,
+    to_node: str,
+    to_socket: str | int
+) -> str:
+    """
+    Delete a specific link between two nodes in a geometry node tree.
+    
+    Parameters:
+    - node_tree_name: Name of the node tree
+    - from_node: Name of the source node
+    - from_socket: Name or index of the output socket
+    - to_node: Name of the destination node
+    - to_socket: Name or index of the input socket
+    
+    Returns:
+    - success: Whether the link was found and deleted
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("delete_geonode_link", {
+            "node_tree_name": node_tree_name,
+            "from_node": from_node,
+            "from_socket": from_socket,
+            "to_node": to_node,
+            "to_socket": to_socket,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error deleting link: {str(e)}")
+        return f"Error deleting link: {str(e)}"
+
+
+@mcp.tool()
+def set_node_socket_default(
+    ctx: Context,
+    node_tree_name: str,
+    node_name: str,
+    socket_name: str | int,
+    value: float | int | bool | str | list,
+    is_output: bool = False
+) -> str:
+    """
+    Set the default value of an unconnected socket on a node.
+    
+    This is useful for configuring nodes without using execute_blender_code.
+    
+    Parameters:
+    - node_tree_name: Name of the node tree
+    - node_name: Name of the node
+    - socket_name: Name or index of the socket
+    - value: New default value (type should match socket type)
+    - is_output: If True, set on output socket (rare); defaults to input
+    
+    Returns:
+    - success: Whether the value was set
+    - old_value: Previous default value
+    - new_value: New default value
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("set_node_socket_default", {
+            "node_tree_name": node_tree_name,
+            "node_name": node_name,
+            "socket_name": socket_name,
+            "value": value,
+            "is_output": is_output,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error setting socket default: {str(e)}")
+        return f"Error setting socket default: {str(e)}"
+
+
+@mcp.tool()
+def validate_geonode_network(ctx: Context, node_tree_name: str) -> str:
+    """
+    Comprehensive validation of a geometry node network.
+    
+    Checks for common issues and returns actionable feedback.
+    
+    Parameters:
+    - node_tree_name: Name of the node tree to validate
+    
+    Returns:
+    - is_valid: True if no critical issues found
+    - issues: List of issues with severity and suggestions
+      - orphan_nodes: Nodes with no connections
+      - missing_required: Required inputs that aren't connected
+      - type_mismatches: Links between incompatible socket types
+      - group_interface: Problems with Group Input/Output
+    - statistics: Node and link counts
+    - suggestions: Prioritized list of fixes to apply
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("validate_geonode_network", {
+            "node_tree_name": node_tree_name,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error validating network: {str(e)}")
+        return f"Error validating network: {str(e)}"
+
+
+@mcp.tool()
+def get_node_tree_interface(ctx: Context, node_tree_name: str) -> str:
+    """
+    Get the interface (exposed inputs and outputs) of a geometry node tree.
+    
+    This shows what parameters are exposed in the modifier panel and their
+    socket identifiers needed for set_geonode_parameter.
+    
+    Parameters:
+    - node_tree_name: Name of the node tree
+    
+    Returns:
+    - inputs: List of input sockets with name, identifier, type, and default
+    - outputs: List of output sockets with name, identifier, and type
+    
+    Use this to discover the Socket_N identifiers needed for modifier parameters.
+    """
+    try:
+        blender = get_blender_connection()
+        result = blender.send_command("get_node_tree_interface", {
+            "node_tree_name": node_tree_name,
+        })
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error getting interface: {str(e)}")
+        return f"Error getting interface: {str(e)}"
+
+
+@mcp.tool()
+def insert_node_between(
+    ctx: Context,
+    node_tree_name: str,
+    from_node: str,
+    from_socket: str | int,
+    to_node: str,
+    to_socket: str | int,
+    new_node_type: str,
+    new_node_name: str = None,
+    input_socket: str | int = 0,
+    output_socket: str | int = 0,
+    properties: dict = None
+) -> str:
+    """
+    Insert a new node between two connected nodes, preserving the data flow.
+    
+    This is a convenience tool that:
+    1. Finds the existing link between from_node and to_node
+    2. Removes that link
+    3. Creates the new node
+    4. Links: from_node -> new_node -> to_node
+    
+    Parameters:
+    - node_tree_name: Name of the node tree
+    - from_node: Name of the source node (upstream)
+    - from_socket: Socket name or index on the source node
+    - to_node: Name of the destination node (downstream)
+    - to_socket: Socket name or index on the destination node
+    - new_node_type: Type of node to insert (e.g., "ShaderNodeMath")
+    - new_node_name: Optional name for the new node
+    - input_socket: Socket on new node to receive input (default: 0)
+    - output_socket: Socket on new node to send output (default: 0)
+    - properties: Optional dict of properties to set on the new node
+    
+    Returns:
+    - success: Whether the insertion was successful
+    - new_node: Name of the created node
+    - links_created: The two new links that were created
+    
+    Example: Insert a Math node between Group Input and Set Curve Radius
+    insert_node_between("PlantSystem", "Group Input", "Trunk Radius", 
+                        "TaperSetRadius", "Radius", "ShaderNodeMath",
+                        properties={"operation": "MULTIPLY"})
+    """
+    try:
+        blender = get_blender_connection()
+        params = {
+            "node_tree_name": node_tree_name,
+            "from_node": from_node,
+            "from_socket": from_socket,
+            "to_node": to_node,
+            "to_socket": to_socket,
+            "new_node_type": new_node_type,
+            "input_socket": input_socket,
+            "output_socket": output_socket,
+        }
+        if new_node_name:
+            params["new_node_name"] = new_node_name
+        if properties:
+            params["properties"] = properties
+        
+        result = blender.send_command("insert_node_between", params)
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error inserting node: {str(e)}")
+        return f"Error inserting node: {str(e)}"
 
 
 @mcp.prompt()
