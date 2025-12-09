@@ -124,6 +124,7 @@ When you discover something important about Blender's API:
    - **Prevention** (how to avoid in future)
 
 Example:
+
 ```markdown
 ### Lesson: Object Must Be Render-Enabled for Baking
 
@@ -187,16 +188,21 @@ if __name__ == "__main__":
 ## Troubleshooting
 
 ### "Connection refused" error
+
 - Ensure Blender is open
+
 - Click "Connect to Claude" in Blender's sidebar
 - Check that port 9876 is not in use
 
 ### "Material not found" when baking
+
 - Run `list_all_materials()` first
 - Use EXACT material name (case-sensitive)
+
 - Verify object has UV coordinates
 
 ### Geometry nodes not updating
+
 - Check if using shader nodes (may freeze after first evaluation)
 - Consider using drivers instead
 - Test incrementally after each change
@@ -204,18 +210,23 @@ if __name__ == "__main__":
 ## Team Conventions
 
 ### Branch Strategy
+
 - `main` - Stable, tested tools
+
 - `local-copilot-development` - Active development
 - Feature branches for major new tools
 
 ### Commit Messages
+
 ```
+
 feat: Add texture_baker_v2 with bake-and-replace workflow
 fix: Correct normal map node connection in bake replacement
 docs: Add baking lessons to BLENDER_API_LESSONS.md
 ```
 
 ### Code Style
+
 - Use docstrings for all public functions
 - Include usage examples in module docstrings
 - Type hints for function parameters
