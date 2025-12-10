@@ -66,9 +66,9 @@ for area in bpy.context.screen.areas:
 
 **Cause:** Using `Object` or `Generated` coordinates projects from one axis only.
 
-**Solution: Triplanar (Box) Projection**
+#### Solution: Triplanar (Box) Projection
 
-```
+```text
 Geometry.Normal → SeparateXYZ → AbsX, AbsY, AbsZ (weights)
 Mapping.Vector → SeparateXYZ → CombineYZ, CombineXZ, CombineXY (projections)
     ↓
@@ -154,7 +154,7 @@ Built 4 different geometry node systems to simulate soil clods with a single "Br
 
 **The winning pattern:**
 
-```
+```text
 Inner Cube (smaller than container)
     ↓
 Distribute Points on Faces (density from slider)
@@ -330,31 +330,31 @@ bpy.data.node_groups.remove(temp)
 
 ### Code Execution Log
 
-**Attempt 1: Clear scene**
+#### Attempt 1: Clear scene
 
 - Status: ✅ SUCCESS
 - Result: Scene cleared (0 objects, 0 node groups, 0 materials)
 
-**Attempt 2: Inspect nodes before building**
+#### Attempt 2: Inspect nodes before building
 
 - Status: ✅ SUCCESS  
 - Result: Got exact socket indices for all nodes I need
 - Lesson: This prevented socket name errors that plagued v1
 
-**Attempt 3: Build minimal geometry nodes**
+#### Attempt 3: Build minimal geometry nodes
 
 - Status: ⚠️ INTERRUPTED (Ctrl+C in terminal)
 - Result: Partial execution - Soil object created, node group partially built
 - Recovery: Checked scene state, found 16 nodes/22 links created successfully
 
-**Attempt 4: Check for orphans (first try)**
+#### Attempt 4: Check for orphans (first try)
 
 - Status: ❌ FAILED
 - Error: `unterminated string literal (detected at line 23)`
 - Cause: Used `\\n` in f-string which doesn't work in triple-quoted strings passed through JSON
 - Fix: Use string concatenation instead of f-strings with newlines
 
-**Attempt 5: Check for orphans (fixed)**
+#### Attempt 5: Check for orphans (fixed)
 
 - Status: ✅ SUCCESS
 - Result: All 16 nodes connected, no orphans, modifier values correct
@@ -483,7 +483,7 @@ bpy.context.view_layer.update()
 
 For a controllable trunk radius:
 
-```
+```text
 Group Input[Trunk Radius]
         ↓
   Math (ADD +0) [passthrough]
@@ -783,7 +783,7 @@ links.new(radius_input.outputs["Radius"], curve_to_mesh.inputs["Scale"])
 
 **Complete Taper Pipeline:**
 
-```
+```text
 Spline Parameter (Factor: 0→1 along curve)
     ↓
 Math SUBTRACT (1 - Factor, so 1 at base, 0 at tip)
@@ -1306,7 +1306,7 @@ img.colorspace_settings.name = 'Non-Color'  # or 'sRGB'
 
 Don't connect normal texture directly to BSDF Normal input:
 
-```
+```text
 WRONG: Normal Texture → BSDF.Normal
 RIGHT: Normal Texture → Normal Map Node → BSDF.Normal
 ```
@@ -1385,7 +1385,7 @@ Successfully created lumber object with proper dimensions and a 9-node procedura
 
 **Error:**
 
-```
+```text
 NameError: name '_SCRIPT_DIR' is not defined
 ```
 
