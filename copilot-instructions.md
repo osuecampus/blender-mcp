@@ -43,17 +43,29 @@ The server runs on port 9876 with Blender addon integration.
 
 ### 3. BlenderMCP Bridge Usage
 
-The standard pattern for 3D modeling:
+**RECOMMENDED: Use the standalone socket module for reliability:**
 
 ```python
-import sys
-import os
+from tools import send_code, send_command, is_blender_connected
 
-# Add blender-mcp to path (adjust based on your workspace location)
-BLENDER_MCP_PATH = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, BLENDER_MCP_PATH)
+# Check connection first
+if is_blender_connected():
+    # Execute Python code in Blender
+    result = send_code('''
+        import bpy
+        bpy.ops.mesh.primitive_cube_add()
+        print("Cube created!")
+    ''')
 
-from tools.copilot_bridge import BlenderCopilotBridge
+    # Or use specific commands
+    scene = send_command('get_scene_info')
+    materials = send_command('list_materials')
+```
+
+**Alternative: Full bridge for advanced features:**
+
+```python
+from tools import BlenderCopilotBridge
 
 bridge = BlenderCopilotBridge()
 
@@ -66,7 +78,26 @@ import bpy
 result = bridge.execute_blender_code(blender_code)
 ```
 
-### 4. Key Bridge Methods
+**Fallback: Direct socket import (always works, no dependencies):**
+
+```python
+# Use this if tools package has import issues
+from tools.blender_socket import send_code, send_command
+
+result = send_code('import bpy; print(bpy.context.scene.name)')
+```
+
+### 4. Key Tools Functions
+
+**blender_socket (always available, no dependencies):**
+
+- `send_code(code)` - Execute Python code in Blender
+- `send_command(type, params)` - Send specific command to addon
+- `get_scene_info()` - Get scene information
+- `list_materials()` - List all materials
+- `is_blender_connected()` - Check if Blender addon is running
+
+**BlenderCopilotBridge (lazily loaded):**
 
 - `execute_blender_code(code)` - Execute Python code in Blender
 - `capture_viewport_screenshot()` - Take scene screenshots
@@ -80,10 +111,9 @@ result = bridge.execute_blender_code(blender_code)
 Use `tools/scene_analyzer.py` or the `analyze_scene()` function for comprehensive scene documentation:
 
 ```python
-from tools.scene_analyzer import SceneAnalyzer, analyze_scene
+from tools import SceneAnalyzer, analyze_scene, quick_geonodes_summary
 
 # Quick summary
-from tools.scene_analyzer import quick_geonodes_summary
 print(quick_geonodes_summary())
 
 # Full analysis
@@ -120,7 +150,7 @@ python tools/scene_analyzer.py --format markdown -o report.md  # Markdown export
 Use `tools/geonode_helper.py` for organizing nodes with frames:
 
 ```python
-from tools.geonode_helper import GeoNodeHelper, frame_new_nodes, create_frame, FRAME_COLORS
+from tools import GeoNodeHelper, frame_new_nodes, create_frame, FRAME_COLORS
 
 helper = GeoNodeHelper()
 

@@ -1370,3 +1370,239 @@ result = baker.bake_and_replace(
 - [ ] Set appropriate color spaces
 - [ ] Clean up temp nodes after baking
 - [ ] If replacing: add Normal Map node for normal textures
+
+---
+
+## Session: 2025-12-10 - Socket Communication & Module Import Issues
+
+### Milestone: Created 2"x4"x48" Lumber with Procedural Wood Grain
+
+Successfully created lumber object with proper dimensions and a 9-node procedural wood grain material using Wave Texture (rings pattern) for grain lines, Noise Texture for natural variation, and triplanar-friendly object coordinates.
+
+### Lesson: Module Import Failures - Missing Variable Definitions
+
+**What happened:** Importing from `tools.copilot_bridge` failed because `tools/__init__.py` imports all modules, and `texture_baker_v2.py` had a missing variable.
+
+**Error:**
+
+```
+NameError: name '_SCRIPT_DIR' is not defined
+```
+
+**Cause:** The `DEFAULT_OUTPUT_DIR` class attribute referenced `_SCRIPT_DIR` which was never defined at module level.
+
+**The fix:** Added the missing variable before the class definition:
+
+```python
+import os
+
+# Define script directory for output paths
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+```
+
+**Prevention:** When adding module-level constants that reference `__file__`, always define helper variables at the top of the module, before any class or function that uses them.
+
+### Lesson: Blender MCP Command Types
+
+**What happened:** Sent `{'type': 'execute', ...}` but Blender returned "Unknown command type: execute".
+
+**Cause:** The addon uses specific command type strings. The correct type is `execute_code`, not `execute`.
+
+**Available command types (from addon.py):**
+
+| Category | Command Types |
+|----------|---------------|
+| **Scene** | `get_scene_info`, `get_object_info`, `get_selection`, `set_selection` |
+| **Execute** | `execute_code` |
+| **Materials** | `list_materials`, `get_material_nodes` |
+| **Geometry Nodes** | `get_node_details`, `get_node_links`, `set_geonode_parameter`, `create_geonode_node`, `create_geonode_link`, etc. |
+| **Assets** | `search_polyhaven_assets`, `search_sketchfab_models` (if enabled) |
+
+**The fix:**
+
+```python
+# WRONG
+message = json.dumps({'type': 'execute', 'params': {'code': code}})
+
+# CORRECT
+message = json.dumps({'type': 'execute_code', 'params': {'code': code}})
+```
+
+**Prevention:** Always use `execute_code` for running Python code in Blender. Reference `addon.py` handlers dict for valid command types.
+
+### Lesson: Direct Socket Communication Pattern
+
+**What happened:** The `copilot_bridge.py` couldn't be imported due to the cascading module error, so direct socket communication was needed.
+
+**Working pattern for direct Blender communication:**
+
+```python
+import socket
+import json
+
+def send_to_blender(code):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect(('localhost', 9876))
+    sock.settimeout(30)
+    
+    message = json.dumps({'type': 'execute_code', 'params': {'code': code}})
+    sock.sendall(message.encode('utf-8'))
+    
+    response = b''
+    while True:
+        try:
+            chunk = sock.recv(8192)
+            if not chunk:
+                break
+            response += chunk
+            try:
+                json.loads(response.decode('utf-8'))
+                break  # Complete JSON received
+            except json.JSONDecodeError:
+                continue  # Wait for more data
+        except socket.timeout:
+            break
+    
+    sock.close()
+    return json.loads(response.decode('utf-8'))
+```
+
+**Key points:**
+
+- Port 9876 is the default BlenderMCP addon port
+- Must accumulate chunks until valid JSON is received
+- Response format: `{'status': 'success', 'result': {...}}` or `{'status': 'error', 'message': '...'}`
+
+### Lesson: Shell Escaping with Here Documents
+
+**What happened:** Multi-line Python code with quotes and f-strings caused escaping nightmares when passed via `-c` flag.
+
+**The fix:** Use bash here documents with quoted delimiter to prevent variable expansion:
+
+```bash
+python << 'PYTHON_EOF'
+# All Python code here - no escaping needed
+blender_code = '''
+import bpy
+obj = bpy.data.objects.get("MyObject")
+print(f"Found: {obj.name}")
+'''
+PYTHON_EOF
+```
+
+**Key:** The single quotes around `'PYTHON_EOF'` prevent bash from expanding variables, allowing Python f-strings to work correctly.
+
+### Lesson: get_object_info Parameter Name
+
+**What happened:** Called `get_object_info` with `{'object_name': 'Lumber_2x4x48'}` but got "unexpected keyword argument".
+
+**The fix:** The correct parameter name is `name`, not `object_name`:
+
+```python
+send_command('get_object_info', {'name': 'Lumber_2x4x48'})
+```
+
+**Prevention:** Check `addon.py` handler function signatures when command parameters aren't obvious.
+
+### Lesson: Blender 4.x Mix Node Changes
+
+**What happened:** Creating material nodes with `ShaderNodeMixRGB` would fail in Blender 4.x.
+
+**Cause:** `ShaderNodeMixRGB` was deprecated. Use `ShaderNodeMix` with `data_type` set.
+
+**The fix:**
+
+```python
+# OLD (Blender 3.x)
+mix = nodes.new("ShaderNodeMixRGB")
+mix.blend_type = "OVERLAY"
+mix.inputs["Fac"].default_value = 0.3
+links.new(source.outputs["Fac"], mix.inputs["Color1"])
+
+# NEW (Blender 4.x+)
+mix = nodes.new("ShaderNodeMix")
+mix.data_type = "RGBA"
+mix.blend_type = "OVERLAY"
+mix.inputs["Factor"].default_value = 0.3
+links.new(source.outputs["Fac"], mix.inputs["A"])
+links.new(source.outputs["Fac"], mix.inputs["B"])
+links.new(mix.outputs["Result"], destination.inputs["Fac"])
+```
+
+**Key differences:**
+
+| Blender 3.x | Blender 4.x |
+|-------------|-------------|
+| `ShaderNodeMixRGB` | `ShaderNodeMix` with `data_type="RGBA"` |
+| `inputs["Fac"]` | `inputs["Factor"]` |
+| `inputs["Color1"]`, `inputs["Color2"]` | `inputs["A"]`, `inputs["B"]` |
+| `outputs["Color"]` | `outputs["Result"]` |
+
+### Quick Reference: Procedural Wood Grain Setup
+
+```python
+# Node setup for realistic wood grain
+nodes_needed = [
+    "ShaderNodeTexCoord",      # Object coordinates
+    "ShaderNodeMapping",        # Scale control (Z compressed for grain direction)
+    "ShaderNodeTexWave",        # RINGS type for wood grain pattern
+    "ShaderNodeTexNoise",       # Variation/imperfections
+    "ShaderNodeMix",            # OVERLAY blend wave + noise
+    "ShaderNodeValToRGB",       # Light tan → dark brown color ramp
+    "ShaderNodeBump",           # Surface relief
+    "ShaderNodeBsdfPrincipled", # Main shader (roughness ~0.6)
+    "ShaderNodeOutputMaterial"
+]
+
+# Wave texture settings for wood
+wave.wave_type = "RINGS"
+wave.rings_direction = "Z"  # Grain runs along Z axis
+wave.inputs["Scale"].default_value = 3.0
+wave.inputs["Distortion"].default_value = 8.0
+```
+
+### Resolution: Lazy Imports & Standalone Socket Module
+
+**Problem solved:** Cascading import failures where a bug in one module (e.g., `texture_baker_v2`) breaks imports of unrelated modules (e.g., `copilot_bridge`).
+
+**Solution implemented:**
+
+1. **Standalone socket module** (`tools/blender_socket.py`):
+   - No dependencies on other tools modules
+   - Always works as a fallback for Blender communication
+   - Simple functions: `send_code()`, `send_command()`, `get_scene_info()`
+
+2. **Lazy imports in `tools/__init__.py`**:
+   - Uses `__getattr__` to defer imports until actually needed
+   - Each module only loaded when its exports are accessed
+   - Bug in one module doesn't break imports of others
+
+**Usage patterns:**
+
+```python
+# Always available - no dependencies
+from tools import send_code, is_blender_connected
+
+# Check connection first
+if is_blender_connected():
+    result = send_code('''
+        import bpy
+        print(bpy.context.scene.name)
+    ''')
+
+# Lazy loaded - only imports copilot_bridge module
+from tools import BlenderCopilotBridge
+
+# Lazy loaded - only imports texture_baker_v2 module  
+from tools import TextureBaker
+```
+
+**Fallback pattern when imports fail:**
+
+```python
+# If tools package has issues, use direct socket communication
+from tools.blender_socket import send_code, send_command
+
+result = send_code('import bpy; print(bpy.context.scene.name)')
+scene = send_command('get_scene_info')
+```
