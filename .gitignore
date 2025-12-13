@@ -11,7 +11,8 @@ src/blender_mcp.egg-info/
 .venv/
 
 # Blender files (keep examples, ignore work files)
-blender/
+/blender/testingScenes/
+/blender/Textures and Reference/
 *.blend1
 *.blend2
 
